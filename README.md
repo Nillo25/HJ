@@ -51,7 +51,7 @@ Index a dataset folder for evaluation (separate from uploads):
     python indexer/index.py <dataset> --db app.db [--only swiss_dwellings] [--limit N]
     python indexer/eval.py  <dataset> --db app.db [--source swiss_dwellings]
 
-Server settings are in `server/.env.example`.
+Server settings are in `server/.env`.
 
 ## Layout
 

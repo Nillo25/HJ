@@ -31,8 +31,17 @@ Parse once into SQLite; questions become queries. The model only (a) parses a qu
 4. For ifc_bench (249 text questions) compare answers with the expected text by hand on about 20 questions; fix ifc_facts.py where facts are missing (software string, footprint area, space breakdown, door/window types).
 5. Count tokens and cost of failed LLM calls in usage.ts.
 
+## Architecture change to make (decided with organisers' input)
+Judges upload files, one set at a time, and ask several questions about it. There is no dataset-wide database in the product. So:
+- Each upload is parsed on upload into its own small SQLite file (uploads/<id>/index.db), the drawing list shows uploads only, and ask_cli / ifc_facts / the server take that DB path per drawing instead of a global DB_PATH. Handle name collisions (same stem uploaded twice) and cleanup of old uploads.
+- The global app.db and the dataset-wide indexing are for development and eval only. Do not build the product around them; keep eval.py working on scratch DBs it creates itself.
+- DXF is the only format that needs a set: group DXF + PNG/PDF by stem, parse the DXF, keep the PNG/PDF as the underlay for the plan view (fit the DXF onto it with a transform). IFC: one file, no viewer. PDF (opening_design): one file, schedules and text questions, no viewer.
+- Parse limits per file: timeout and page cap, with an honest refusal reason when exceeded (large PDFs up to 25 MB took 22 s; the batch indexer hung on 55 of them).
+- Keep until the per-upload path works and eval passes there: data/opening_test.db, data/demo.db, app.db (do not delete earlier). Then remove app.db and data/sync.tgz from the working flow, drop the server's global DB_PATH, and make the example chips load from data/examples.json by file format only.
+- Candidates to delete after that (ask me first): app.db, unknown_labels.txt, docs/ifc-viewer-spike/ (abandoned), data/sync.tgz.
+
 ## Then (see docs/backlog.md)
-Indexer per-file timeout and PDF triage (55 PDFs in opening_design, up to 25 MB, make the batch hang); A700 (20 q) and A-701 (3 q) schedules; swiss leftovers (fixtures, literal-label areas, double apartments); accuracy panel in the UI; needs_clarification flow; per-upload DB and name collisions; PNG/PDF underlay for DXF; deploy image (Python + Node + pdfminer.six); submission deliverables (deck, video, demo set, peer review; freeze 08:00, submit by 10:00). cubicasa5k is with another person: do not touch.
+A700 (20 q) and A-701 (3 q) schedules; swiss leftovers (fixtures, literal-label areas, double apartments); accuracy panel in the UI; needs_clarification flow; PNG/PDF underlay for DXF; deploy image (Python + Node + pdfminer.six); submission deliverables (deck, video, demo set, peer review; freeze 08:00, submit by 10:00). cubicasa5k is with another person: do not touch.
 
 ## Rules
 Small commits with clear messages. Type-check the server: cd server && npx tsc --noEmit --module nodenext --moduleResolution nodenext --target es2022 --skipLibCheck --strict src/index.ts. Keep code cross-platform. No prize talk, no padding. Offer options when there is a real choice instead of pushing one.
