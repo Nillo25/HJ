@@ -8,7 +8,7 @@
  "sauna": "inventory",
  "shower_bathtub": "inventory",
  "sink": "inventory",
- "toilet": "yolo",
+ "toilet": "inventory",
  "wc_room": "inventory",
  "window": "yolo"
 }
