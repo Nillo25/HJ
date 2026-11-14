@@ -12,8 +12,9 @@ with heavy dependencies (torch, ultralytics, OpenCV) and its own model provider 
 - Northline talks to it over HTTP in one file, `server/src/raster.ts`: upload, ask, scene, scale. Their scene and answers are
   turned into ours (`Answer`, `Evidence`, the plan for `PlanViewer`), so the front, limits, budget and counters work as for the
   other formats. `RASTER_URL` empty = the old behaviour (PNG shown, questions refused with a reason).
-- Two images: the Northline one stays small (557 MB), the service is 2.5 GB (CPU torch). The service is never published: it
-  has no authentication.
+- One image and one deployed service: `start.sh` runs the floor-plan service on 127.0.0.1:8001 next to the server (about 3 GB, CPU torch).
+  Nothing outside the container can reach it: it has no authentication. It is restarted by `start.sh` if it dies.
+  (First version: two images and two services; dropped because two Railway services and a start command per root were error-prone.)
 - The service keeps scenes on its own disk and is not the system of record: if it loses a scene, the sheet is read again from our copy.
 
 ## Consequences

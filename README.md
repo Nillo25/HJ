@@ -52,30 +52,27 @@ It reads `server/.env` (optional) and honours `PYTHON_BIN`; Ctrl+C stops both. T
 
 ### Docker
 
-    docker compose up --build        # http://localhost:3000: the Northline server and the floor-plan service
+    docker compose up --build        # http://localhost:3000
 
-    docker build -t northline .                                   # the server alone (PNG is then shown, not read)
-    docker run --rm -p 3000:3000 -v northline-data:/data --env-file server/.env northline
+    docker build -t northline .
+    docker run --rm -p 3000:3000 -v northline-data:/data --env-file server/.env --env-file raster/.env northline
 
-The compose file starts two services: `northline` (below) and `raster` (`raster/Dockerfile`: Python 3.11, CPU torch, YOLO weights
-checked against their sha256; about 2 GB, 2-3 GB of memory; not published, `RASTER_URL=http://raster:8000` points to it).
-The `northline` image: the compiled API, the built web app, Python 3.11 with pdfminer.six. Uploads and the question cache live in the
-volume `/data` (`UPLOADS_DIR`, `CACHE_DB`). The model key and prices come from the environment, never from the image
-(`LLM_PROVIDER`, `LLM_MODEL`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `LLM_PRICE_IN/OUT`, `LLM_RPM`). Other settings:
-`UPLOAD_MAX_MB` (100), `INDEX_TIMEOUT_S` (120), `UPLOAD_TTL_HOURS` (24), `VIEWER_MAX_MB` (150), `PYTHON_BIN`.
+One image, one service: the compiled API, the built web app, Python 3.11 (indexer with pdfminer.six) and the floor-plan service for
+raster plans (`raster/`: CPU torch, YOLO weights checked against their sha256). `start.sh` runs both; the floor-plan service listens on
+`127.0.0.1:8001` inside the container only (it has no authentication) and is restarted if it dies. About 3 GB image, give it 3-4 GB of
+memory. Uploads, the question cache and raster scenes live in `/data` (`UPLOADS_DIR`, `CACHE_DB`, `FP_SCENES`). Keys come from the
+environment, never from the image: ours (`LLM_PROVIDER`, `LLM_MODEL`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `LLM_PRICE_IN/OUT`, `LLM_RPM`) and
+theirs (`ANTHROPIC_API_KEY`, optional `FP_*` of `raster/README.md`). Other settings: `UPLOAD_MAX_MB` (100), `INDEX_TIMEOUT_S` (120),
+`UPLOAD_TTL_HOURS` (24), `VIEWER_MAX_MB` (150), `PYTHON_BIN`. `raster/Dockerfile` builds the floor-plan service alone (for the colleagues).
 
 ### Railway
 
-Two services in one project.
-
-1. **northline**: root directory `/`, builds `Dockerfile`. Variables: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `LLM_PROVIDER`, `LLM_MODEL`,
-   `LLM_PRICE_IN`, `LLM_PRICE_OUT` (copy them from `server/.env`), `TRUST_PROXY=1`, `RASTER_URL=http://<raster service name>.railway.internal:8000`.
-   Healthcheck path `/api/usage`. A 100 MB IFC needs about 1 GB of memory while it is parsed. This is the only service with a public domain.
-2. **raster**: root directory `raster/`, builds `raster/Dockerfile`. Variables: `PORT=8000`, `ANTHROPIC_API_KEY` (optional: without it only
-   detections and rule-based questions work). No public domain: it has no authentication. Healthcheck path `/api/meta`. At least 2 GB of memory.
-
-No volume is needed: uploads are disposable (a restart loses the current file, it has to be uploaded again; the raster scene is read again
-by itself). With a volume on `/data` also set `RAILWAY_RUN_UID=0` (Railway mounts volumes as root, the images run as a normal user).
+One service, built from the root `Dockerfile` (no Root Directory, **no custom start command**: the image starts itself). Variables, all in the
+same place: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `LLM_PROVIDER`, `LLM_MODEL`, `LLM_PRICE_IN`, `LLM_PRICE_OUT` (copy them from `server/.env`),
+`ANTHROPIC_API_KEY` (optional: without it PNG plans are read by the detectors only), `TRUST_PROXY=1`. Do not set `PORT` (Railway sets it) and
+do not set `RASTER_URL` (the image points to its own floor-plan service). Healthcheck path `/api/usage`, with a timeout of 300 s: the first start
+loads the model. Memory at least 3 GB. No volume is needed (a restart loses the current file, it has to be uploaded again; Railway rejects
+`VOLUME` in a Dockerfile, so a volume is made in Railway on `/data`, together with `RAILWAY_RUN_UID=0`).
 
 ### Limits (flood protection, no login)
 

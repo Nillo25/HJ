@@ -19,4 +19,15 @@ package-lock.json
 !server/package-lock.json
 !web/package-lock.json
 **/__pycache__
-raster
+raster/.venv
+raster/runs
+raster/data
+raster/out
+raster/eval
+raster/scripts
+raster/colab
+raster/tests
+raster/stoa
+raster/.idea
+raster/.claude
+raster/.env

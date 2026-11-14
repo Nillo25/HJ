@@ -1,5 +1,5 @@
 # docker compose up --build   ->  http://localhost:3000
-# Two services: the Northline server (DXF, IFC, PDF; the web app) and the floor-plan service that reads raster plans (PNG).
+# One service: the Northline server and, inside the same container, the floor-plan service that reads raster plans (PNG).
 services:
   northline:
     build: .
@@ -8,24 +8,11 @@ services:
     env_file:
       - path: server/.env        # model key and prices; optional: without it only known question patterns work
         required: false
-    environment:
-      RASTER_URL: http://raster:8000
-      TRUST_PROXY: "0"
-    depends_on:
-      - raster
-    volumes:
-      - northline-data:/data     # uploads/<hash>/index.db and cache.db survive a restart
-    restart: unless-stopped
-
-  raster:
-    build: ./raster
-    # not published: it has no authentication; only the northline service reaches it
-    env_file:
-      - path: raster/.env        # ANTHROPIC_API_KEY (optional, see raster/.env.example)
+      - path: raster/.env        # ANTHROPIC_API_KEY for reading raster plans; optional (without it only the detectors work)
         required: false
+    volumes:
+      - northline-data:/data     # uploads, question cache and raster scenes survive a restart
+    mem_limit: 4g                # YOLO and the model plus parsing a large IFC: 1 GB is not enough
     restart: unless-stopped
-    # 1 GB is not enough for a large sheet; give it room
-    mem_limit: 3g
-
 volumes:
   northline-data:
