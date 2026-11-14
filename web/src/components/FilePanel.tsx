@@ -4,10 +4,10 @@ import { pdfFirstPageToPng } from '../lib/pdfToPng';
 import { Badge, Button, Card, CardBody, CardHeader, CardTitle, cn } from './ui';
 
 const KINDS: { kind: Kind; label: string; ext: string; hint: string }[] = [
-  { kind: 'dxf', label: 'DXF plan', ext: '.dxf', hint: 'Drawn from its geometry; the objects you ask about are marked on it.' },
-  { kind: 'ifc', label: 'IFC model', ext: '.ifc', hint: 'Shown as a plan per storey; the objects you ask about are marked.' },
-  { kind: 'pdf', label: 'PDF sheet', ext: '.pdf', hint: 'The vector sheet itself; the schedule rows you ask about are marked.' },
-  { kind: 'png', label: 'PNG plan', ext: '.png', hint: 'Shown as uploaded. Reading pixels is not supported yet.' },
+  { kind: 'dxf', label: 'DXF plan', ext: '.dxf', hint: 'drawn as the real plan; what you ask about is marked on it' },
+  { kind: 'ifc', label: 'IFC model', ext: '.ifc', hint: '3D model in the browser, with what you ask about marked' },
+  { kind: 'pdf', label: 'PDF sheet', ext: '.pdf', hint: 'text and schedules are read; the lines used are boxed (a scan becomes a PNG)' },
+  { kind: 'png', label: 'PNG plan', ext: '.png', hint: 'shown as uploaded; reading the pixels is not supported yet' },
 ];
 const KIND_LABEL: Record<Kind, string> = { dxf: 'DXF plan', ifc: 'IFC model', pdf: 'PDF sheet', png: 'PNG plan' };
 
@@ -26,14 +26,12 @@ const STEPS = ['Upload', 'Parse', 'Ready'];
  */
 export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLoaded: (d: Drawing, parsedMs: number) => void }) {
   const input = useRef<HTMLInputElement>(null);
-  const [kind, setKind] = useState<Kind>('dxf');
   const [phase, setPhase] = useState<Phase>({ name: 'idle' });
   const [replacing, setReplacing] = useState(false);
   const [drag, setDrag] = useState(false);
   const [parsedMs, setParsedMs] = useState<number | null>(null);
   const [converted, setConverted] = useState<{ from: string; pages: number } | null>(null);   // a scanned PDF shown as a PNG
   const [now, setNow] = useState(Date.now());
-  const cur = KINDS.find(k => k.kind === kind)!;
   const busy = phase.name === 'uploading' || phase.name === 'parsing' || phase.name === 'converting';
 
   // after a reload: the file was a converted PDF, say so again
@@ -53,14 +51,13 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
 
   async function send(file: File | undefined, from?: { name: string; pages: number }) {
     if (!file || (busy && !from)) return;
-    // the extension picks the kind for you; the server still checks that they agree
+    // the extension decides what the file is (the server checks it once more)
     const byExt = KINDS.find(k => file.name.toLowerCase().endsWith(k.ext));
-    const use = byExt?.kind ?? kind;
-    if (byExt) setKind(byExt.kind);
     if (!byExt) {
-      setPhase({ name: 'error', message: `"${file.name}" is not a DXF, IFC, PDF or PNG file.` });
+      setPhase({ name: 'error', message: `"${file.name}" is not supported. Upload a ${KINDS.map(k => k.label.split(' ')[0]).join(', ')} file.` });
       return;
     }
+    const use = byExt.kind;
     const t0 = Date.now();
     try {
       setPhase({ name: 'uploading', file: file.name, fraction: 0 });
@@ -179,15 +176,6 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
 
         {showPicker && !busy && (
           <>
-            <div role="radiogroup" aria-label="Kind of material" className="grid grid-cols-4 gap-1">
-              {KINDS.map(k => (
-                <button key={k.kind} role="radio" aria-checked={kind === k.kind} onClick={() => setKind(k.kind)}
-                  className={cn('rounded-md border px-1 py-1.5 text-xs font-medium',
-                    kind === k.kind ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 text-slate-700 hover:bg-slate-100')}>
-                  {k.label}
-                </button>
-              ))}
-            </div>
             <div role="button" tabIndex={0}
               onClick={() => input.current?.click()}
               onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && input.current?.click()}
@@ -196,10 +184,13 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
               onDrop={e => { e.preventDefault(); setDrag(false); send(e.dataTransfer.files[0]); }}
               className={cn('flex cursor-pointer flex-col items-center gap-1 rounded-md border-2 border-dashed px-3 py-6 text-center text-sm transition-colors',
                 drag ? 'border-slate-900 bg-slate-100' : 'border-slate-300 hover:bg-slate-50')}>
-              <span className="font-medium">{current ? 'Drop another file here or click' : `Drop a ${cur.ext} file here or click`}</span>
-              <span className="text-xs text-slate-500">{cur.hint}</span>
+              <span className="font-medium">{current ? 'Drop another file here or click' : 'Drop a file here or click'}</span>
+              <span className="text-xs text-slate-500">DXF, IFC, PDF or PNG, one file</span>
             </div>
-            <input ref={input} type="file" accept=".dxf,.ifc,.pdf,.png" className="hidden" onChange={e => send(e.target.files?.[0])} />
+            <ul className="space-y-0.5 text-xs text-slate-500">
+              {KINDS.map(k => <li key={k.kind}><b className="text-slate-700">{k.ext}</b> {k.hint}</li>)}
+            </ul>
+            <input ref={input} type="file" accept={KINDS.map(k => k.ext).join(',')} className="hidden" onChange={e => send(e.target.files?.[0])} />
           </>
         )}
       </CardBody>

@@ -241,11 +241,14 @@ function finish(job: Job, ok: boolean, why?: string) {
 
 app.post('/api/upload', async (c) => {
   const form = await c.req.parseBody({ all: true });
-  const kind = String(form['kind'] ?? '') as Kind;
+  // the browser sends the kind it derived from the extension; without it the extension decides here
+  const first = ([] as any[]).concat(form['files'] ?? form['file'] ?? [])[0] as File | undefined;
+  const byExt = KINDS.find((k) => first?.name && path.extname(first.name).toLowerCase() === EXT_BY_KIND[k]);
+  const kind = String(form['kind'] || byExt || '') as Kind;
   const files = ([] as any[]).concat(form['files'] ?? form['file'] ?? []).filter((f) => f && typeof f !== 'string') as File[];
 
   // routing is manual: the user picks the kind of material, we never sniff it
-  if (!KINDS.includes(kind)) return c.json({ error: `kind must be one of ${KINDS.join(', ')}` }, 400);
+  if (!KINDS.includes(kind)) return c.json({ error: `Unsupported file. Upload a ${KINDS.map((k) => EXT_BY_KIND[k]).join(', ')} file.` }, 400);
   if (files.length !== 1) return c.json({ error: 'upload exactly one file' }, 400);
   const f = files[0];
   const name = path.basename(f.name);
