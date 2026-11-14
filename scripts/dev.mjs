@@ -25,7 +25,9 @@ function pythonOk(bin) {
   const r = spawnSync(bin, ['-c', 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'], { stdio: 'ignore' });
   return r.status === 0;
 }
-const candidates = [process.env.PYTHON_BIN, 'python3.13', 'python3.12', 'python3.11', 'python3.10', 'python3', 'python'].filter(Boolean);
+// a relative path (raster/.venv/bin/python) is relative to where the command was typed, not to the folder a service starts in
+const abs = (bin) => (bin && /[\\/]/.test(bin) ? path.resolve(process.cwd(), bin) : bin);
+const candidates = [abs(process.env.PYTHON_BIN), 'python3.13', 'python3.12', 'python3.11', 'python3.10', 'python3', 'python'].filter(Boolean);
 const python = candidates.find(pythonOk);
 if (!python) {
   console.error('[dev] Python 3.10+ not found. Install it (macOS: brew install python@3.12) or set PYTHON_BIN=/path/to/python.');
@@ -38,7 +40,7 @@ console.log(`[dev] python: ${python}\n[dev] open http://localhost:5173  (API on 
 
 // The floor-plan service for PNG (raster/): started when its weights and Python packages are there (see raster/WEIGHTS.md).
 // RASTER_PYTHON is the interpreter with ultralytics installed (default: the one above); RASTER_URL set = an existing service is used.
-const rasterPython = process.env.RASTER_PYTHON || python;
+const rasterPython = abs(process.env.RASTER_PYTHON) || python;
 const rasterDir = path.join(root, 'raster');
 const hasWeights = existsSync(path.join(rasterDir, 'runs', 'colab', 'floorplan_v2.pt')) || Boolean(process.env.FP_MODEL);
 const rasterReady = !process.env.RASTER_URL && hasWeights &&
@@ -71,6 +73,7 @@ const stop = (code = 0) => {
   setTimeout(() => process.exit(code), 300);
 };
 for (const [name, p] of procs) {
+  p.on('error', (e) => { console.error(`[dev] cannot start ${name}: ${e.message}`); stop(1); });
   tag(name, p.stdout, process.stdout); tag(name, p.stderr, process.stderr);
   p.on('exit', (c) => { if (!stopping) { console.error(`[dev] ${name} stopped (code ${c}), stopping the other one`); stop(c ?? 1); } });
 }
