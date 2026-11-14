@@ -42,6 +42,14 @@ TYPES = {
     "fixture":   {"IFCFLOWTERMINAL", "IFCSANITARYTERMINAL"},
     "furniture": {"IFCFURNISHINGELEMENT"},
     "covering":  {"IFCCOVERING"},
+    "roof":      {"IFCROOF"},
+    "ramp":      {"IFCRAMP"},
+    "pipe":      {"IFCPIPESEGMENT", "IFCPIPEFITTING"},
+    "duct":      {"IFCDUCTSEGMENT", "IFCDUCTFITTING"},
+    "equipment": {"IFCFLOWMOVINGDEVICE", "IFCFLOWSTORAGEDEVICE", "IFCFLOWCONTROLLER", "IFCFLOWTREATMENTDEVICE",
+                  "IFCENERGYCONVERSIONDEVICE", "IFCELECTRICAPPLIANCE", "IFCLIGHTFIXTURE", "IFCDISTRIBUTIONELEMENT",
+                  "IFCDISTRIBUTIONFLOWELEMENT", "IFCFIRESUPPRESSIONTERMINAL", "IFCSENSOR", "IFCALARM"},
+    "proxy":     {"IFCBUILDINGELEMENTPROXY"},
 }
 CLASS2TYPE = {c: t for t, cs in TYPES.items() for c in cs}
 
@@ -51,7 +59,15 @@ GEOM = {"IFCPRODUCTDEFINITIONSHAPE", "IFCSHAPEREPRESENTATION", "IFCPOLYLINE",
         "IFCCARTESIANPOINT", "IFCGEOMETRICCURVESET", "IFCSIUNIT"}
 QTY = {"IFCELEMENTQUANTITY", "IFCQUANTITYAREA", "IFCQUANTITYVOLUME",
        "IFCQUANTITYLENGTH"}
-TYPE_DEFS = {"IFCDOORTYPE", "IFCWINDOWTYPE", "IFCDOORSTYLE", "IFCWINDOWSTYLE"}
+TYPE_DEFS = {"IFCDOORTYPE", "IFCWINDOWTYPE", "IFCDOORSTYLE", "IFCWINDOWSTYLE", "IFCWALLTYPE", "IFCSLABTYPE",
+             "IFCCOVERINGTYPE", "IFCSTAIRTYPE", "IFCSTAIRFLIGHTTYPE", "IFCRAILINGTYPE", "IFCBEAMTYPE", "IFCCOLUMNTYPE",
+             "IFCFURNITURETYPE", "IFCFURNISHINGELEMENTTYPE", "IFCROOFTYPE", "IFCPIPESEGMENTTYPE", "IFCDUCTSEGMENTTYPE",
+             "IFCSANITARYTERMINALTYPE", "IFCFLOWTERMINALTYPE", "IFCBUILDINGELEMENTPROXYTYPE"}
+# properties, materials and systems: read only for files of a size where it stays cheap
+ENRICH = {"IFCPROPERTYSET", "IFCPROPERTYSINGLEVALUE", "IFCRELASSOCIATESMATERIAL", "IFCMATERIAL", "IFCMATERIALLAYER",
+          "IFCMATERIALLAYERSET", "IFCMATERIALLAYERSETUSAGE", "IFCMATERIALLIST", "IFCMATERIALCONSTITUENTSET",
+          "IFCMATERIALCONSTITUENT", "IFCRELASSIGNSTOGROUP", "IFCSYSTEM", "IFCDISTRIBUTIONSYSTEM", "IFCGROUP"}
+ENRICH_MAX_MB = 120
 KEEP = (set(CLASS2TYPE) | REL | QTY | GEOM | TYPE_DEFS | GEOM_KEEP | {
     "IFCBUILDINGSTOREY", "IFCBUILDING", "IFCPROJECT", "IFCSITE", "IFCRELDEFINESBYTYPE", "IFCAPPLICATION"})
 
@@ -59,12 +75,15 @@ HEAD = re.compile(r"^#(\d+)\s*=\s*([A-Z0-9_]+)\s*\(", re.I)
 # \X2\00D6\X0\ -> O-umlaut, \X\E6 -> ae-ligature
 UNI = re.compile(r"\\X2\\((?:[0-9A-Fa-f]{4})+)\\X0\\")
 UNI1 = re.compile(r"\\X\\([0-9A-Fa-f]{2})")
+# \S\e is the character whose code is that of the next character plus 128 (ISO 8859-1: \S\e = a-ring)
+UNI_S = re.compile(r"\\S\\(.)")
 
 
 def _unescape(s: str) -> str:
     s = UNI.sub(lambda m: "".join(
         chr(int(m.group(1)[i:i + 4], 16)) for i in range(0, len(m.group(1)), 4)), s)
     s = UNI1.sub(lambda m: chr(int(m.group(1), 16)), s)
+    s = UNI_S.sub(lambda m: chr(ord(m.group(1)) + 128), s)
     return s.replace("''", "'")
 
 
@@ -102,6 +121,29 @@ def _str(a: str):
     return None
 
 
+def _typed(a: str):
+    """IFCLABEL('x') / IFCBOOLEAN(.T.) / IFCREAL(1.5) -> str | bool | float | None."""
+    m = re.match(r"IFC\w+\((.*)\)\s*$", (a or "").strip(), re.S)
+    if not m:
+        return None
+    v = m.group(1).strip()
+    if v in (".T.", ".F."):
+        return v == ".T."
+    if v.startswith("'"):
+        return _unescape(v[1:-1])
+    try:
+        return float(v)
+    except ValueError:
+        return None
+
+
+# properties worth keeping for questions about walls, doors, fire rating, load-bearing, finishes
+KEEP_PROP = re.compile(
+    r"extern|load|tragend|fire|feuer|brand|rating|thermal|u-?wert|acoust|schall|function|funktion|categor|"
+    r"kategor|material|thick|dicke|width|height|breite|h[oö]he|system|usage|nutzung|finish|ceiling|decke|"
+    r"fl[aä]che|area|volume|volumen|length|l[aä]nge", re.I)
+
+
 def _num(a: str):
     try:
         return float(a)
@@ -115,6 +157,8 @@ def _refs(a: str) -> list[int]:
 
 def read(path: str):
     """-> (ents, counts). ents: {id: (TYPE, [args])} for wanted types only."""
+    import os
+    keep = KEEP | ENRICH if os.path.getsize(path) <= ENRICH_MAX_MB * 1e6 else KEEP
     ents, counts = {}, {}
     buf = ""
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -136,7 +180,7 @@ def read(path: str):
                 continue
             eid, cls = int(m.group(1)), m.group(2).upper()
             counts[cls] = counts.get(cls, 0) + 1
-            if cls in KEEP:
+            if cls in keep:
                 ents[eid] = (cls, split_args(stmt[m.end():-1]))
     return ents, counts
 
@@ -312,6 +356,73 @@ def parse(path: str, dict_rows: dict):
                     for e in _refs(a[4]):
                         typename[e] = tn
 
+    # --- properties, materials, systems (small and mid-size files) ---------
+    props_of: dict[int, dict] = {}
+    for cls, a in ents.values():
+        if cls != "IFCRELDEFINESBYPROPERTIES" or len(a) < 6:
+            continue
+        pd = _refs(a[5])
+        if not pd or pd[0] not in ents or ents[pd[0]][0] != "IFCPROPERTYSET":
+            continue
+        pa = ents[pd[0]][1]
+        got = {}
+        for pr in _refs(pa[4]) if len(pa) > 4 else []:
+            if pr in ents and ents[pr][0] == "IFCPROPERTYSINGLEVALUE" and len(ents[pr][1]) > 2:
+                nm, v = _str(ents[pr][1][0]), _typed(ents[pr][1][2])
+                if nm and v is not None and KEEP_PROP.search(nm):
+                    got[f"{_str(pa[2]) or ''}.{nm}"] = v
+        if got:
+            for e in _refs(a[4]):
+                props_of.setdefault(e, {}).update(got)
+
+    def _material(ref):
+        """-> {"set": name, "layers": [[material, thickness_m]]} or None."""
+        if ref not in ents:
+            return None
+        cls, a = ents[ref]
+        if cls == "IFCMATERIALLAYERSETUSAGE" and a:
+            return _material(_refs(a[0])[0]) if _refs(a[0]) else None
+        if cls == "IFCMATERIALLAYERSET" and a:
+            layers = []
+            for lr in _refs(a[0]):
+                if lr in ents and ents[lr][0] == "IFCMATERIALLAYER":
+                    la = ents[lr][1]
+                    mr = _refs(la[0]) if la else []
+                    mn = _str(ents[mr[0]][1][0]) if mr and mr[0] in ents else None
+                    t = _num(la[1]) if len(la) > 1 else None
+                    layers.append([mn, round(t * scale, 4) if t is not None else None])
+            return {"set": _str(a[1]) if len(a) > 1 else None, "layers": layers}
+        if cls == "IFCMATERIAL" and a:
+            return {"set": None, "layers": [[_str(a[0]), None]]}
+        if cls == "IFCMATERIALLIST" and a:
+            return {"set": None, "layers": [[_str(ents[r][1][0]), None] for r in _refs(a[0]) if r in ents]}
+        if cls == "IFCMATERIALCONSTITUENTSET" and len(a) > 2:
+            out_l = []
+            for cr in _refs(a[2]):
+                if cr in ents and ents[cr][0] == "IFCMATERIALCONSTITUENT":
+                    ca = ents[cr][1]
+                    mr = _refs(ca[2]) if len(ca) > 2 else []
+                    out_l.append([(_str(ents[mr[0]][1][0]) if mr and mr[0] in ents else None) or _str(ca[0]), None])
+            return {"set": _str(a[0]), "layers": out_l}
+        return None
+
+    mat_of: dict[int, dict] = {}
+    sys_of: dict[int, list] = {}
+    for cls, a in ents.values():
+        if cls == "IFCRELASSOCIATESMATERIAL" and len(a) > 5:
+            rm = _refs(a[5])
+            info = _material(rm[0]) if rm else None
+            if info:
+                for e in _refs(a[4]):
+                    mat_of[e] = info
+        elif cls == "IFCRELASSIGNSTOGROUP" and len(a) > 6:
+            g = _refs(a[6])
+            if g and g[0] in ents and ents[g[0]][0] in ("IFCSYSTEM", "IFCDISTRIBUTIONSYSTEM", "IFCGROUP"):
+                gn = _str(ents[g[0]][1][2]) if len(ents[g[0]][1]) > 2 else None
+                if gn:
+                    for e in _refs(a[4]):
+                        sys_of.setdefault(e, []).append(gn)
+
     # --- elements ----------------------------------------------------------
     out = []
     geom = Geom(ents, scale)
@@ -341,6 +452,25 @@ def parse(path: str, dict_rows: dict):
             "props": json.dumps({"ifc_class": cls, "name": name,
                                  "long_name": longname}, ensure_ascii=False),
         }
+        # type, material layers, properties, systems: what free-form questions ask about
+        pj0 = json.loads(row["props"])
+        pj0["type_name"] = typename.get(eid) or (_str(a[4]) if len(a) > 4 else None) or name
+        if t in ("slab", "covering", "roof", "stair", "railing", "column", "beam") and len(a) > 8:
+            pre = (a[8] or "").strip().strip(".")
+            if pre and pre != "$":
+                pj0["predefined"] = pre
+        mi = mat_of.get(eid)
+        if mi:
+            pj0["material_set"] = mi["set"]
+            pj0["materials"] = [m for m, _t in mi["layers"] if m]
+            ths = [t_ for _m, t_ in mi["layers"] if t_]
+            if ths:
+                pj0["thickness_mm"] = round(sum(ths) * 1000, 1)
+        if eid in props_of:
+            pj0["psets"] = props_of[eid]
+        if eid in sys_of:
+            pj0["systems"] = sys_of[eid]
+        row["props"] = json.dumps(pj0, ensure_ascii=False)
         if t in ("door", "window"):
             w = _num(a[9]) * scale if len(a) > 9 and _num(a[9]) else qvals.get(eid, {}).get("Width")
             h = _num(a[8]) * scale if len(a) > 8 and _num(a[8]) else qvals.get(eid, {}).get("Height")
@@ -353,6 +483,9 @@ def parse(path: str, dict_rows: dict):
             # prefer a stored quantity, else measure the contour ourselves
             row["area"] = pick(eid, AREA) or _footprint_area(ents, eid, scale)
             row["volume"] = pick(eid, VOL)
+            hv = pick(eid, ("Height", "FinishCeilingHeight", "NetHeight", "GrossHeight"))
+            if hv:
+                pj1 = json.loads(row["props"]); pj1["height_m"] = round(hv, 3); row["props"] = json.dumps(pj1, ensure_ascii=False)
         elif t in ("wall", "beam"):
             row["length"] = pick(eid, LEN)
             if t == "wall":
@@ -386,6 +519,12 @@ def parse(path: str, dict_rows: dict):
             names[cls[3:].lower()] = {"name": _str(a[2]),
                                       "long_name": _str(a[7]) if len(a) > 7 else None,
                                       "description": _str(a[3])}
+            if cls == "IFCSITE" and len(a) > 10:
+                for key, arg in (("latitude", a[9]), ("longitude", a[10])):
+                    v = [int(x) for x in re.findall(r"-?\d+", arg or "")]
+                    if len(v) >= 3:
+                        names[cls[3:].lower()][key] = f"{v[0]} deg {abs(v[1])}' {abs(v[2])}\"" if len(v) == 3 else \
+                            f"{v[0]} deg {abs(v[1])}' {abs(v[2])}.{abs(v[3])}\""
     hd = header(path)
     apps = [f"{_str(a[2])} {_str(a[1])}".strip() for c, a in ents.values()
             if c == "IFCAPPLICATION" and len(a) > 2 and _str(a[2])]

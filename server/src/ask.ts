@@ -75,11 +75,11 @@ function pyCall(s: Session, fn: string, args: Record<string, unknown>): Promise<
 }
 
 /** Facts sheet of an IFC model, computed from the index (no model). */
-function pyFacts(s: Session): Promise<any | null> {
+function pyFacts(s: Session, question: string): Promise<any | null> {
   return new Promise((resolve) => {
     execFile(PYTHON, [
       path.resolve('../indexer/ifc_facts.py'),
-      '--db', s.dbPath, '--drawing', s.drawing.name,
+      '--db', s.dbPath, '--drawing', s.drawing.name, '--q', question,
     ], { timeout: 20000, maxBuffer: 8e6 }, (err, out) => {
       if (err) return resolve(null);
       try { resolve(JSON.parse(out)); } catch { resolve(null); }
@@ -89,7 +89,7 @@ function pyFacts(s: Session): Promise<any | null> {
 
 /** Free-form question about a whole model: the model only phrases facts computed in Python. */
 async function report(d: Session, question: string, t0: number, prior: Usage[], priorCost: number, route: string) {
-  const facts = await pyFacts(d);
+  const facts = await pyFacts(d, question);
   if (!facts || !Object.keys(facts).length) {
     return { status: 'refused', reason: 'no facts could be computed for this model', missing: 'data',
              route, cost_usd: priorCost, usage: prior, latency_ms: Date.now() - t0 };
@@ -104,7 +104,9 @@ async function report(d: Session, question: string, t0: number, prior: Usage[], 
     system:
       'You answer a question about one building model using ONLY the JSON facts given. ' +
       'Copy numbers exactly, never compute new ones, never invent. Answer in the language of the question, ' +
-      'compactly, as plain lines. Set enough=false when the facts do not contain the answer.',
+      'compactly, as plain lines. Set enough=false when the facts do not contain the answer. ' +
+      'When a figure is marked as measured or estimated (a *_note field), say so and give it as an estimate. ' +
+      'Percentages, counts and areas in the facts are already computed: use them, do not recompute.',
     prompt: `Facts:\n${JSON.stringify(facts)}\n\nQuestion: ${question}`,
   }));
   const cost = estimateCost(usage);
@@ -154,6 +156,10 @@ const Query = z.discriminatedUnion('fn', [
       .describe('true для «всех пронумерованных внутренних помещений»'),
     label: z.string().optional()
       .describe('only for type=room: sum over the rooms with EXACTLY this printed label, e.g. "all rooms labelled \'Zimmer\'"'),
+  }),
+  z.object({
+    fn: z.literal('apartment_area'),
+    label: z.string().describe('the apartment letter as written on the plan: A, B, C...'),
   }),
   z.object({ fn: z.literal('list_floors') }),
   z.object({ fn: z.literal('report') }).describe('free-form question about a whole IFC model: software, levels, space breakdown, summary'),

@@ -476,6 +476,8 @@ def from_model(fn: str, a: dict):
         if a.get("label"):
             kw["label_literal"] = a["label"]
         return "sum_quantity", kw
+    if fn == "apartment_area":
+        return "apartment_area", {"label": a.get("label", "")}
     if fn == "list_floors":
         return "list_floors", {}
     return None
