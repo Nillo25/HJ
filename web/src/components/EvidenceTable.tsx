@@ -1,10 +1,10 @@
 import { unitLabel, type Answer, type Evidence } from '../lib/api';
-import { Card, CardHeader, CardTitle, Table, Td, Th, cn } from './ui';
+import { Card, CardHeader, CardTitle, Table, Td, Th } from './ui';
 
 const TYPE: Record<string, string> = { room_row: 'schedule room', door_row: 'schedule door' };
 const value = (e: Evidence) => e.area ?? e.length ?? e.volume ?? null;
 
-export function EvidenceTable({ answer, hover, onHover }: { answer: Answer; hover: number | null; onHover: (id: number | null) => void }) {
+export function EvidenceTable({ answer }: { answer: Answer }) {
   const rows = answer.evidence ?? [];
   if (!rows.length) return null;
 
@@ -37,12 +37,7 @@ export function EvidenceTable({ answer, hover, onHover }: { answer: Answer; hove
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr
-                key={`${r.id ?? r.ref ?? i}-${i}`}
-                onMouseEnter={() => r.id != null && onHover(r.id)}
-                onMouseLeave={() => onHover(null)}
-                className={cn(hover != null && hover === r.id && 'bg-sky-50')}
-              >
+              <tr key={`${r.id ?? r.ref ?? i}-${i}`}>
                 <Td className="tabular-nums text-slate-400">{i + 1}</Td>
                 <Td>{[TYPE[r.type ?? ''] ?? r.type, r.subtype].filter(Boolean).join(' · ') || r.kind}</Td>
                 <Td className="max-w-56 truncate" title={r.label ?? ''}>{r.label ?? '—'}</Td>

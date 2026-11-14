@@ -351,7 +351,7 @@ FNS = {"count_objects": count_objects, "room_area": room_area,
        "schedule": schedule}
 
 
-def evidence_of(rows, con, limit=50):
+def evidence_of(rows, con, limit=1000):
     """One entry per element behind the answer: enough for a table row
     (what, where) and for highlighting (ref = IFC GlobalId, bbox or id)."""
     floors = {}

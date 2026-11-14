@@ -153,7 +153,7 @@ function scheduleLabel(r: Element): string | null {
   } catch { return r.label; }
 }
 
-function evidenceOf(d: Session, rows: Element[], limit = 50) {
+function evidenceOf(d: Session, rows: Element[], limit = 1000) {
   const floors = new Map<number, string>(
     floorsOf(d.db, d.drawing.id).map((f) => [f.id, f.name]),
   );

@@ -76,7 +76,9 @@ disagrees with the code, the code wins; fix this file.
 - UI (`web/`): UploadPanel, DrawingList, question field + example chips (`web/src/examples.json`,
   from `data/examples.json`), AnswerCard (status, value, route, tokens, cost, time, "what was
   run"), EvidenceTable, PlanViewer (DXF, IFC per storey, PDF sheet; evidence ids highlight objects, zoom
-  to the answer, layer toggles; IFC jumps to the storey of the answer), UsageBar (questions, share answered without a model, tokens, cost, per-model badges).
+  to the answer, layer toggles). Proof view: found objects red and numbered like the evidence table, the rest
+  dimmed, header "Found: door x 211", per-storey counts for IFC that sum to the answer, a warning for found
+  objects with no shape in the file; no hover. Evidence is capped at 1000 rows), UsageBar (questions, share answered without a model, tokens, cost, per-model badges).
 - Models: Verda inference, OpenAI-compatible, base URL `https://inference.verda.com/v1`.
   DeepSeek 4.1 Flash 1017 (`deepseek-4-1-flash-1017`, EUR 0.1336 in / 0.5346 out per 1M, cached input
   0.0053, 1M context, image input, optional reasoning) and Kimi K3.1 Pro (EUR 1.79 / 8.95).

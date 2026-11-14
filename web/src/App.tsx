@@ -19,7 +19,6 @@ export default function App() {
   const [asked, setAsked] = useState<string | null>(null);
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [loading, setLoading] = useState(false);
-  const [hover, setHover] = useState<number | null>(null);
   const [usageKey, setUsageKey] = useState(0);
 
   const refresh = useCallback(() => getDrawings().then(setDrawings).catch(() => setDrawings([])), []);
@@ -59,13 +58,6 @@ export default function App() {
   }
 
   const onSubmit = (e: FormEvent) => { e.preventDefault(); run(question); };
-  // IFC evidence has kind 'ifc' and is drawn by element id like the others
-  const highlight = useMemo(
-    () => new Set((answer?.evidence ?? []).filter(e => e.id != null).map(e => e.id as number)),
-    [answer],
-  );
-  const floorHint = useMemo(() => (answer?.evidence ?? []).find(e => e.floor_id != null)?.floor_id ?? null, [answer]);
-
   return (
     <div className="mx-auto max-w-7xl px-4 py-5">
       <header className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -108,8 +100,8 @@ export default function App() {
 
           {answer && answer.status !== 'refused' && (
             <div className={showPlan ? 'grid gap-5 xl:grid-cols-2' : ''}>
-              <EvidenceTable answer={answer} hover={hover} onHover={setHover} />
-              {showPlan && current && <PlanViewer drawingId={current.id} highlight={highlight} hover={hover} floorHint={floorHint} />}
+              <EvidenceTable answer={answer} />
+              {showPlan && current && <PlanViewer drawingId={current.id} evidence={answer?.evidence ?? []} />}
             </div>
           )}
           {current?.kind === 'png' && (
@@ -120,7 +112,7 @@ export default function App() {
               </CardBody>
             </Card>
           )}
-          {!answer && showPlan && current && <PlanViewer drawingId={current.id} highlight={highlight} hover={hover} floorHint={floorHint} />}
+          {!answer && showPlan && current && <PlanViewer drawingId={current.id} evidence={[]} />}
         </main>
       </div>
     </div>

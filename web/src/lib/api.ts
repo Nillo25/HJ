@@ -15,6 +15,7 @@ export type Evidence = {
   kind: string;
   id?: number;
   floor_id?: number | null;
+  bbox?: string | null;
   ref?: string | null;
   type?: string;
   subtype?: string | null;
