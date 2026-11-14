@@ -275,7 +275,21 @@ class Geom:
             if chosen:
                 break
         if not chosen:
-            return None
+            # walls modelled by their axis only: draw a thin strip along it (thickness is a guess)
+            axis = next((r for r in reps if ident(r) == "Axis"), None)
+            if not axis:
+                return None
+            line = []
+            for it in _refs(axis[1][3] if len(axis[1]) > 3 else ""):
+                c = self.e.get(it)
+                if c and c[0] == "IFCPOLYLINE":
+                    pts = [self.point(r) for r in _refs(",".join(c[1]))]
+                    line = [tuple(_apply(M, p)[:2]) for p in pts if p]
+            strip = _strip(line, 0.075 / self.scale)
+            if not strip:
+                return None
+            sc = self.scale
+            return [(round(x * sc, 3), round(y * sc, 3)) for x, y in strip]
         polys = []
         for it in _refs(chosen[1][3] if len(chosen[1]) > 3 else ""):
             polys += self.item(it, M)
@@ -306,3 +320,21 @@ def _hull(points):
             up.pop()
         up.append(p)
     return lo[:-1] + up[:-1]
+
+
+def _strip(line, half):
+    """Polyline -> closed polygon of the given half width (left side out, right side back)."""
+    if len(line) < 2:
+        return None
+    left, right = [], []
+    for i, (x, y) in enumerate(line):
+        a = line[max(i - 1, 0)]
+        b = line[min(i + 1, len(line) - 1)]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        n = (dx * dx + dy * dy) ** 0.5
+        if n < 1e-9:
+            continue
+        nx, ny = -dy / n * half, dx / n * half
+        left.append((x + nx, y + ny))
+        right.append((x - nx, y - ny))
+    return left + right[::-1] if len(left) >= 2 else None

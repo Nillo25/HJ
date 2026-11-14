@@ -33,7 +33,14 @@ export default function App() {
   }, []);
 
   const showPlan = current?.kind === 'dxf' || current?.kind === 'pdf' || current?.kind === 'ifc';
-  const chips = useMemo(() => (current ? (EXAMPLES[current.source] ?? []).slice(0, 6) : []), [current]);
+  // examples written for this very file first; otherwise generic ones of the same kind (no model names in them)
+  const chips = useMemo(() => {
+    if (!current) return [];
+    const all = [...(EXAMPLES[current.source] ?? []), ...(current.kind === 'ifc' ? EXAMPLES.ifc_bench ?? [] : [])];
+    const own = all.filter(e => e.drawing === current.name);
+    if (own.length) return own.slice(0, 6);
+    return all.filter(e => !/['"“”„«»]/.test(e.q)).slice(0, 6);
+  }, [current]);
 
   async function run(q: string) {
     if (!current || !q.trim()) return;
