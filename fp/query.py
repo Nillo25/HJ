@@ -4,6 +4,7 @@ LLM в пиксели не смотрит — вызывает только эт
 """
 from __future__ import annotations
 
+import os
 from dataclasses import asdict, dataclass, field
 
 from .classes import CLASSES, LABELS_RU, ROOM_CLASSES
@@ -135,7 +136,50 @@ def _select(scene: Scene, cls: str, room: str | None, primary: bool):
     return items
 
 
+# Флаг «ненадёжный план» (из ветки stoa, MERGE_STOA.md): два независимых источника — модель (YOLO + дуги/остекление)
+# и опись плана (ИИ по картинке) — расходятся на большой доле из 12 типов -> план трудный, ответам на нём верить меньше.
+# Замер на eval_set (80 планов): порог 0.58 (70-й процентиль) помечает 30% планов; на test помеченные 60.8% верных,
+# остальные 86.2%. Корреляция доли расхождений с точностью плана -0.65.
+# По умолчанию флаг только добавляет примечание; понижение high -> medium (FP_PLAN_DOWNGRADE=1) на test поднимает
+# точность high 93.6% -> 95.4%, но доля high падает 43% -> 30% — решение за продуктом.
+PLAN_UNRELIABLE = float(os.environ.get("FP_PLAN_UNRELIABLE", "0.58"))
+PLAN_DOWNGRADE = os.environ.get("FP_PLAN_DOWNGRADE", "0") == "1"
+
+
+def plan_check(scene: Scene) -> dict:
+    """Доля типов, где модель и опись плана дают разные числа (0 = всё совпало). Без описи — не оцениваем."""
+    inv = scene.meta.get("inventory") or {}
+    diff, n = [], 0
+    for cls, key in INV_KEY.items():
+        if cls in VIRTUAL or not isinstance(inv.get(key), (int, float)):
+            continue
+        y = _count_yolo(scene, cls, None).answer
+        if not isinstance(y, (int, float)):
+            continue
+        n += 1
+        if int(y) != int(inv[key]):
+            diff.append(cls)
+    if not n:
+        return {"reliable": None, "disagreement": None, "classes": []}
+    d = round(len(diff) / n, 3)
+    return {"reliable": d <= PLAN_UNRELIABLE, "disagreement": d, "classes": diff}
+
+
 def count(scene: Scene, cls: str, room: str | None = None) -> Answer:
+    a = _count_plan(scene, cls, room)
+    if room or a.answer is None:
+        return a
+    pc = plan_check(scene)
+    if pc["reliable"] is False:
+        if PLAN_DOWNGRADE and a.confidence == "high":
+            a.confidence = "medium"
+        extra = (f"план помечен ненадёжным: модель и опись расходятся по {len(pc['classes'])} типам "
+                 f"({pc['disagreement']:.0%}) — проверьте")
+        a.note = f"{a.note}; {extra}" if a.note else extra
+    return a
+
+
+def _count_plan(scene: Scene, cls: str, room: str | None = None) -> Answer:
     """Подсчёт. Без комнаты и при наличии описи плана — источник по маршруту (ROUTE), второй источник —
     сверка: совпали -> уверенность высокая, разошлись -> на ступень ниже. С комнатой — только YOLO
     (опись не знает, что в какой комнате)."""
