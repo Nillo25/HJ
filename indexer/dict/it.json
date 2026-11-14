@@ -1,0 +1,151 @@
+{
+ "lang": "it",
+ "name": "Italian",
+ "entries": {
+  "w.c.": {
+   "type": "wc",
+   "full": "W.C.",
+   "src": "real plan: archilovers CAMERA / CUCINA-PRANZO-SOGGIORNO / W.C."
+  },
+  "wc": {
+   "type": "wc",
+   "full": "W.C.",
+   "src": "dataset"
+  },
+  "bagno": {
+   "type": "bathroom",
+   "full": "bagno",
+   "src": "dataset"
+  },
+  "cucina": {
+   "type": "kitchen",
+   "full": "cucina",
+   "src": "dataset"
+  },
+  "camera": {
+   "type": "bedroom",
+   "full": "camera",
+   "src": "dataset"
+  },
+  "camera da letto": {
+   "type": "bedroom",
+   "full": "camera da letto",
+   "src": "dataset"
+  },
+  "stanza": {
+   "type": "bedroom",
+   "full": "stanza",
+   "src": "dataset"
+  },
+  "soggiorno": {
+   "type": "living",
+   "full": "soggiorno",
+   "src": "dataset"
+  },
+  "pranzo": {
+   "type": "living",
+   "full": "pranzo",
+   "src": "dataset"
+  },
+  "soggiorno/pranzo": {
+   "type": "living",
+   "full": "soggiorno/pranzo",
+   "src": "dataset"
+  },
+  "cucina-pranzo-soggiorno": {
+   "type": "kitchen",
+   "full": "cucina-pranzo-soggiorno (open plan)",
+   "src": "real plan"
+  },
+  "corridoio": {
+   "type": "corridor",
+   "full": "corridoio",
+   "src": "dataset"
+  },
+  "ripostiglio": {
+   "type": "storage",
+   "full": "ripostiglio",
+   "src": "dataset"
+  },
+  "vano scala": {
+   "type": "corridor",
+   "full": "vano scala",
+   "src": "dataset"
+  },
+  "ascensore": {
+   "type": "technical",
+   "full": "ascensore",
+   "src": "dataset"
+  },
+  "balcone": {
+   "type": "balcony",
+   "full": "balcone",
+   "src": "dataset"
+  },
+  "terrazza": {
+   "type": "balcony",
+   "full": "terrazza",
+   "src": "dataset"
+  },
+  "sogg": {
+   "type": "living",
+   "full": "soggiorno",
+   "src": "knowledge"
+  },
+  "cuc": {
+   "type": "kitchen",
+   "full": "cucina",
+   "src": "knowledge"
+  },
+  "cam": {
+   "type": "bedroom",
+   "full": "camera",
+   "src": "knowledge"
+  },
+  "bag": {
+   "type": "bathroom",
+   "full": "bagno",
+   "src": "knowledge"
+  },
+  "rip": {
+   "type": "storage",
+   "full": "ripostiglio",
+   "src": "knowledge"
+  },
+  "disp": {
+   "type": "corridor",
+   "full": "disimpegno",
+   "src": "knowledge"
+  },
+  "disimp": {
+   "type": "corridor",
+   "full": "disimpegno",
+   "src": "knowledge"
+  },
+  "lav": {
+   "type": "technical",
+   "full": "lavanderia",
+   "src": "knowledge"
+  },
+  "ing": {
+   "type": "corridor",
+   "full": "ingresso",
+   "src": "knowledge"
+  },
+  "ter": {
+   "type": "balcony",
+   "full": "terrazzo",
+   "src": "knowledge"
+  },
+  "cab": {
+   "type": "storage",
+   "full": "cabina armadio",
+   "src": "knowledge"
+  },
+  "arm": {
+   "type": "storage",
+   "full": "armadio",
+   "src": "knowledge"
+  }
+ }
+}

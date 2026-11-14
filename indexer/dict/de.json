@@ -1,0 +1,111 @@
+{
+ "lang": "de",
+ "name": "German",
+ "entries": {
+  "ki": {
+   "type": "bedroom",
+   "full": "Kinderzimmer",
+   "src": "legend: sanier.de/bauen/grundrisse-verstehen"
+  },
+  "sz": {
+   "type": "bedroom",
+   "full": "Schlafzimmer",
+   "src": "legend: sanier.de/bauen/grundrisse-verstehen"
+  },
+  "b": {
+   "type": "bathroom",
+   "full": "Badezimmer",
+   "src": "legend: sanier.de/bauen/grundrisse-verstehen"
+  },
+  "bad": {
+   "type": "bathroom",
+   "full": "Badezimmer",
+   "src": "legend: sanier.de/bauen/grundrisse-verstehen"
+  },
+  "wc": {
+   "type": "wc",
+   "full": "Toilette",
+   "src": "legend: sanier.de/bauen/grundrisse-verstehen"
+  },
+  "wz": {
+   "type": "living",
+   "full": "Wohnzimmer",
+   "src": "legend: sanier.de/bauen/grundrisse-verstehen"
+  },
+  "fl": {
+   "type": "corridor",
+   "full": "Flur",
+   "src": "legend: sanier.de/bauen/grundrisse-verstehen"
+  },
+  "hwr": {
+   "type": "technical",
+   "full": "Hauswirtschaftsraum",
+   "src": "legend: sanier.de/bauen/grundrisse-verstehen"
+  },
+  "spk": {
+   "type": "storage",
+   "full": "Speisekammer",
+   "src": "legend: sanier.de/bauen/grundrisse-verstehen"
+  },
+  "har": {
+   "type": "technical",
+   "full": "Hausanschlussraum",
+   "src": "legend: sanier.de/bauen/grundrisse-verstehen"
+  },
+  "tr": {
+   "type": "technical",
+   "full": "Technikraum / Hausanschlussraum",
+   "src": "legend: sanier.de/bauen/grundrisse-verstehen"
+  },
+  "abst": {
+   "type": "storage",
+   "full": "Abstellraum",
+   "src": "dataset"
+  },
+  "abstellr": {
+   "type": "storage",
+   "full": "Abstellraum",
+   "src": "dataset"
+  },
+  "ku": {
+   "type": "kitchen",
+   "full": "Küche",
+   "src": "knowledge"
+  },
+  "kü": {
+   "type": "kitchen",
+   "full": "Küche",
+   "src": "knowledge"
+  },
+  "wo": {
+   "type": "living",
+   "full": "Wohnen",
+   "src": "knowledge"
+  },
+  "ess": {
+   "type": "living",
+   "full": "Essen / Esszimmer",
+   "src": "knowledge"
+  },
+  "wohnen/essen": {
+   "type": "living",
+   "full": "Wohnen/Essen",
+   "src": "dataset"
+  },
+  "az": {
+   "type": "office",
+   "full": "Arbeitszimmer",
+   "src": "knowledge"
+  },
+  "gz": {
+   "type": "bedroom",
+   "full": "Gästezimmer",
+   "src": "knowledge"
+  },
+  "dg": {
+   "type": "other",
+   "full": "Dachgeschoss (a storey, not a room)",
+   "src": "knowledge"
+  }
+ }
+}

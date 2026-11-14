@@ -1,0 +1,101 @@
+{
+ "lang": "da",
+ "name": "Danish",
+ "entries": {
+  "toilet": {
+   "type": "wc",
+   "full": "toilet",
+   "src": "dataset"
+  },
+  "bad": {
+   "type": "bathroom",
+   "full": "bad",
+   "src": "dataset"
+  },
+  "bad - herre": {
+   "type": "bathroom",
+   "full": "bad - herre",
+   "src": "dataset"
+  },
+  "bad - dame": {
+   "type": "bathroom",
+   "full": "bad - dame",
+   "src": "dataset"
+  },
+  "omklædning - herre": {
+   "type": "bathroom",
+   "full": "omklædning - herre (changing room)",
+   "src": "dataset"
+  },
+  "omklædning - dame": {
+   "type": "bathroom",
+   "full": "omklædning - dame",
+   "src": "dataset"
+  },
+  "teknikrum": {
+   "type": "technical",
+   "full": "teknikrum",
+   "src": "dataset"
+  },
+  "skakt": {
+   "type": "technical",
+   "full": "skakt (shaft)",
+   "src": "dataset"
+  },
+  "depot": {
+   "type": "storage",
+   "full": "depot",
+   "src": "dataset"
+  },
+  "gang": {
+   "type": "corridor",
+   "full": "gang",
+   "src": "dataset"
+  },
+  "affald": {
+   "type": "technical",
+   "full": "affald",
+   "src": "dataset"
+  },
+  "it-server rum": {
+   "type": "technical",
+   "full": "it-server rum",
+   "src": "dataset"
+  },
+  "køle og varmecentral": {
+   "type": "technical",
+   "full": "køle- og varmecentral",
+   "src": "dataset"
+  },
+  "køkken": {
+   "type": "kitchen",
+   "full": "køkken",
+   "src": "knowledge"
+  },
+  "stue": {
+   "type": "living",
+   "full": "stue",
+   "src": "knowledge"
+  },
+  "soveværelse": {
+   "type": "bedroom",
+   "full": "soveværelse",
+   "src": "knowledge"
+  },
+  "entré": {
+   "type": "corridor",
+   "full": "entré",
+   "src": "knowledge"
+  },
+  "møde": {
+   "type": "office",
+   "full": "mødelokale",
+   "src": "dataset"
+  },
+  "møderum": {
+   "type": "office",
+   "full": "mødelokale",
+   "src": "dataset"
+  }
+ }
+}

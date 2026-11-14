@@ -1,0 +1,61 @@
+{
+ "lang": "nl",
+ "name": "Dutch",
+ "entries": {
+  "slk": {
+   "type": "bedroom",
+   "full": "slaapkamer",
+   "src": "knowledge"
+  },
+  "slaapkamer": {
+   "type": "bedroom",
+   "full": "slaapkamer",
+   "src": "knowledge"
+  },
+  "woonkamer": {
+   "type": "living",
+   "full": "woonkamer",
+   "src": "knowledge"
+  },
+  "keuken": {
+   "type": "kitchen",
+   "full": "keuken",
+   "src": "knowledge"
+  },
+  "badkamer": {
+   "type": "bathroom",
+   "full": "badkamer",
+   "src": "knowledge"
+  },
+  "toilet": {
+   "type": "wc",
+   "full": "toilet",
+   "src": "knowledge"
+  },
+  "hal": {
+   "type": "corridor",
+   "full": "hal",
+   "src": "knowledge"
+  },
+  "gang": {
+   "type": "corridor",
+   "full": "gang",
+   "src": "knowledge"
+  },
+  "berging": {
+   "type": "storage",
+   "full": "berging",
+   "src": "knowledge"
+  },
+  "balkon": {
+   "type": "balcony",
+   "full": "balkon",
+   "src": "knowledge"
+  },
+  "cv": {
+   "type": "technical",
+   "full": "cv-ruimte",
+   "src": "knowledge"
+  }
+ }
+}

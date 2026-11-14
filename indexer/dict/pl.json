@@ -1,0 +1,61 @@
+{
+ "lang": "pl",
+ "name": "Polish",
+ "entries": {
+  "sypialnia": {
+   "type": "bedroom",
+   "full": "sypialnia",
+   "src": "knowledge"
+  },
+  "pokój": {
+   "type": "bedroom",
+   "full": "pokój",
+   "src": "knowledge"
+  },
+  "kuchnia": {
+   "type": "kitchen",
+   "full": "kuchnia",
+   "src": "knowledge"
+  },
+  "łazienka": {
+   "type": "bathroom",
+   "full": "łazienka",
+   "src": "knowledge"
+  },
+  "wc": {
+   "type": "wc",
+   "full": "wc",
+   "src": "knowledge"
+  },
+  "przedpokój": {
+   "type": "corridor",
+   "full": "przedpokój",
+   "src": "knowledge"
+  },
+  "korytarz": {
+   "type": "corridor",
+   "full": "korytarz",
+   "src": "knowledge"
+  },
+  "salon": {
+   "type": "living",
+   "full": "salon",
+   "src": "knowledge"
+  },
+  "balkon": {
+   "type": "balcony",
+   "full": "balkon",
+   "src": "knowledge"
+  },
+  "garderoba": {
+   "type": "storage",
+   "full": "garderoba",
+   "src": "knowledge"
+  },
+  "kotłownia": {
+   "type": "technical",
+   "full": "kotłownia",
+   "src": "knowledge"
+  }
+ }
+}

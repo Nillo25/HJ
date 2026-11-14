@@ -1,0 +1,136 @@
+{
+ "lang": "fr",
+ "name": "French",
+ "entries": {
+  "dgt": {
+   "type": "corridor",
+   "full": "dégagement",
+   "src": "legend: plan-immobilier.fr lire-plan-architecte"
+  },
+  "sdb": {
+   "type": "bathroom",
+   "full": "salle de bain",
+   "src": "legend: plan-immobilier.fr lire-plan-architecte"
+  },
+  "sde": {
+   "type": "bathroom",
+   "full": "salle d'eau",
+   "src": "legend: plan-immobilier.fr lire-plan-architecte"
+  },
+  "pl": {
+   "type": "storage",
+   "full": "placard",
+   "src": "legend: plan-immobilier.fr lire-plan-architecte"
+  },
+  "wc": {
+   "type": "wc",
+   "full": "toilettes",
+   "src": "legend: plan-immobilier.fr lire-plan-architecte"
+  },
+  "bain": {
+   "type": "bathroom",
+   "full": "bain",
+   "src": "dataset"
+  },
+  "pièce": {
+   "type": "bedroom",
+   "full": "pièce (generic room, counted like Zimmer/Stanza)",
+   "src": "dataset"
+  },
+  "piece": {
+   "type": "bedroom",
+   "full": "pièce",
+   "src": "dataset"
+  },
+  "séjour": {
+   "type": "living",
+   "full": "séjour",
+   "src": "dataset"
+  },
+  "séjour/repas": {
+   "type": "living",
+   "full": "séjour/repas",
+   "src": "dataset"
+  },
+  "cuisine": {
+   "type": "kitchen",
+   "full": "cuisine",
+   "src": "dataset"
+  },
+  "chambre": {
+   "type": "bedroom",
+   "full": "chambre",
+   "src": "dataset"
+  },
+  "chambre à coucher": {
+   "type": "bedroom",
+   "full": "chambre à coucher",
+   "src": "dataset"
+  },
+  "couloir": {
+   "type": "corridor",
+   "full": "couloir",
+   "src": "dataset"
+  },
+  "réduit": {
+   "type": "storage",
+   "full": "réduit",
+   "src": "dataset"
+  },
+  "cage d'escalier": {
+   "type": "corridor",
+   "full": "cage d'escalier",
+   "src": "dataset"
+  },
+  "ascenseur": {
+   "type": "technical",
+   "full": "ascenseur",
+   "src": "dataset"
+  },
+  "cell": {
+   "type": "storage",
+   "full": "cellier",
+   "src": "knowledge"
+  },
+  "cellier": {
+   "type": "storage",
+   "full": "cellier",
+   "src": "knowledge"
+  },
+  "dress": {
+   "type": "storage",
+   "full": "dressing",
+   "src": "knowledge"
+  },
+  "buand": {
+   "type": "technical",
+   "full": "buanderie",
+   "src": "knowledge"
+  },
+  "sej": {
+   "type": "living",
+   "full": "séjour",
+   "src": "knowledge"
+  },
+  "séj": {
+   "type": "living",
+   "full": "séjour",
+   "src": "knowledge"
+  },
+  "ch": {
+   "type": "bedroom",
+   "full": "chambre",
+   "src": "knowledge"
+  },
+  "cuis": {
+   "type": "kitchen",
+   "full": "cuisine",
+   "src": "knowledge"
+  },
+  "entr": {
+   "type": "corridor",
+   "full": "entrée",
+   "src": "knowledge"
+  }
+ }
+}
