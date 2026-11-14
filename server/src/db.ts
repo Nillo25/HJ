@@ -108,6 +108,36 @@ export function cleanupUploads() {
 
 export function ensureUploads() { mkdirSync(UPLOADS, { recursive: true }); }
 
+const dirBytes = (dir: string): number => {
+  let n = 0;
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    try { n += e.isDirectory() ? dirBytes(p) : statSync(p).size; } catch { /* vanished while counting */ }
+  }
+  return n;
+};
+
+/**
+ * Disk quota for uploads (UPLOADS_MAX_GB, 0 = none): before a new upload is stored the oldest ones are removed
+ * until it fits. Uploads being parsed right now are never removed.
+ */
+export function enforceQuota(extraBytes: number, busy: Set<string>) {
+  const cap = Number(process.env.UPLOADS_MAX_GB ?? 5) * 1e9;
+  if (!(cap > 0) || !existsSync(UPLOADS)) return;
+  const dirs = readdirSync(UPLOADS).filter((u) => UID_RE.test(u)).map((u) => {
+    const dir = path.join(UPLOADS, u);
+    return { u, dir, at: statSync(dir).mtimeMs, size: dirBytes(dir) };
+  }).sort((a, b) => a.at - b.at);
+  let total = dirs.reduce((n, x) => n + x.size, 0) + extraBytes;
+  for (const x of dirs) {
+    if (total <= cap) break;
+    if (busy.has(x.u)) continue;
+    open.get(x.u)?.db.close(); open.delete(x.u);
+    rmSync(x.dir, { recursive: true, force: true });
+    total -= x.size;
+  }
+}
+
 /* ------------------------------------------------------ queries per session */
 
 export const filesOf = (db: Database.Database, id: number) =>

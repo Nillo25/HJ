@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { streamSSE } from 'hono/streaming';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -9,13 +10,14 @@ import { Readable } from 'node:stream';
 import path from 'node:path';
 
 import {
-  INDEX_VERSION, KINDS, SOURCE_BY_KIND, UPLOADS, cleanupUploads, elementCount, ensureUploads, filesOf, floorsOf,
+  enforceQuota, INDEX_VERSION, KINDS, SOURCE_BY_KIND, UPLOADS, cleanupUploads, elementCount, ensureUploads, filesOf, floorsOf,
   getSession, listSessions, queryElements, metaPath,
   type Element, type Kind, type Session,
 } from './db.js';
 import { ask } from './ask.js';
+import { Semaphore, limit, rateLimit } from './limits.js';
 import { PYTHON } from './py.js';
-import { countQuestion, usageSnapshot } from './usage.js';
+import { BudgetError, countQuestion, usageSnapshot } from './usage.js';
 
 ensureUploads();
 cleanupUploads();
@@ -26,6 +28,13 @@ const INDEX_TIMEOUT_S = Number(process.env.INDEX_TIMEOUT_S ?? 120);
 const EXT_BY_KIND: Record<Kind, string> = { dxf: '.dxf', ifc: '.ifc', pdf: '.pdf', png: '.png' };
 
 const app = new Hono();
+
+// flood protection (see limits.ts): per address on what costs something, body sizes, parallel parsing
+app.use('/api/ask', bodyLimit({ maxSize: 16 * 1024, onError: (c) => c.json({ error: 'The question is too long.' }, 413) }));
+app.use('/api/ask', rateLimit('question', limit('RATE_ASK_PER_MIN', 60)));
+app.use('/api/upload', bodyLimit({ maxSize: (MAX_MB + 1) * 1e6, onError: (c) => c.json({ error: `The file is larger than ${MAX_MB} MB.` }, 413) }));
+app.use('/api/upload', rateLimit('upload', limit('RATE_UPLOAD_PER_MIN', 6)));
+const slots = new Semaphore(limit('MAX_PARALLEL_INDEX', 2));
 
 /* ------------------------------------------------------------ drawings */
 
@@ -186,7 +195,8 @@ app.get('/api/drawings/:id/plan', (c) => {
 
 app.post('/api/ask', async (c) => {
   const body = await c.req.json<{ question: string; drawing_id?: string }>();
-  if (!body?.question) return c.json({ error: 'question required' }, 400);
+  if (!body?.question || typeof body.question !== 'string') return c.json({ error: 'question required' }, 400);
+  if (body.question.length > 2000) return c.json({ error: 'The question is too long (2000 characters at most).' }, 413);
   const s = body.drawing_id ? getSession(body.drawing_id) : null;
   if (!s) return c.json({ error: 'drawing required' }, 400);
 
@@ -195,6 +205,7 @@ app.post('/api/ask', async (c) => {
     countQuestion(res.route === 'template' || res.route === 'cache');
     return c.json(res);
   } catch (e: any) {
+    if (e instanceof BudgetError) return c.json({ status: 'refused', reason: e.message, missing: 'budget', route: 'none', cost_usd: 0 }, 200);
     return c.json({ status: 'refused', reason: `${e?.name}: ${e?.message}`,
                     missing: 'internal', route: 'llm', cost_usd: 0 }, 200);
   }
@@ -255,6 +266,8 @@ app.post('/api/upload', async (c) => {
   }
   if (jobs.get(uid) && !jobs.get(uid)!.finished) return c.json({ jobId: uid });
 
+  enforceQuota(buf.length, new Set([...jobs.values()].filter((j) => !j.finished).map((j) => j.id)));
+
   // the indexer expects <root>/data/<source>/<files>
   const root = path.join(UPLOADS, uid);
   rmSync(root, { recursive: true, force: true });
@@ -265,14 +278,21 @@ app.post('/api/upload', async (c) => {
   const job: Job = { id: uid, stage: 'indexing', log: [], finished: false, drawings: [] };
   jobs.set(uid, job);
 
+  void (async () => {
+  if (slots.full) job.stage = 'queued';
+  await slots.acquire();
+  job.stage = 'indexing';
+  let released = false;
+  const free = () => { if (!released) { released = true; slots.release(); } };
   const p = spawn(PYTHON, [path.resolve('../indexer/index.py'), root, '--db', path.join(root, 'index.db')]);
   const timer = setTimeout(() => { p.kill(); }, INDEX_TIMEOUT_S * 1000);
   let timedOut = false;
   p.on('exit', (_c, sig) => { if (sig) timedOut = true; });
   p.stdout.on('data', (d) => job.log.push(String(d)));
   p.stderr.on('data', (d) => job.log.push(String(d)));
-  p.on('error', (e) => { clearTimeout(timer); finish(job, false, `cannot start ${PYTHON}: ${e.message}`); });
+  p.on('error', (e) => { free(); clearTimeout(timer); finish(job, false, `cannot start ${PYTHON}: ${e.message}`); });
   p.on('close', (code) => {
+    free();
     clearTimeout(timer);
     if (job.finished) return;
     if (timedOut) return finish(job, false, `parsing took longer than ${INDEX_TIMEOUT_S} s: file is too complex for the limit`);
@@ -293,6 +313,7 @@ app.post('/api/upload', async (c) => {
     r.on('error', () => { clearTimeout(rt); finish(job, true); });
     r.on('close', () => { clearTimeout(rt); finish(job, true); });
   });
+  })();
 
   return c.json({ jobId: uid });
 });

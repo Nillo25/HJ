@@ -54,7 +54,23 @@ One image: the compiled API, the built web app, Python 3.11 with pdfminer.six. U
 volume `/data` (`UPLOADS_DIR`, `CACHE_DB`). The model key and prices come from the environment, never from the image
 (`LLM_PROVIDER`, `LLM_MODEL`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `LLM_PRICE_IN/OUT`, `LLM_RPM`). Other settings:
 `UPLOAD_MAX_MB` (100), `INDEX_TIMEOUT_S` (120), `UPLOAD_TTL_HOURS` (24), `VIEWER_MAX_MB` (150), `PYTHON_BIN`.
-There is no authentication and no rate limit per user: put it behind a proxy if it is public.
+
+### Limits (flood protection, no login)
+
+| Setting | Default | What it does |
+|---|---|---|
+| `RATE_ASK_PER_MIN` | 60 | questions per minute per client address (token bucket, burst of the same size) |
+| `RATE_UPLOAD_PER_MIN` | 6 | uploads per minute per client address |
+| `MAX_PARALLEL_INDEX` | 2 | files parsed at once; the others wait ("queued") |
+| `LLM_DAILY_BUDGET_USD` | 20 | spending cap on the model per UTC day; questions that need no model keep working |
+| `UPLOADS_MAX_GB` | 5 | disk quota for uploads: the oldest are removed to make room |
+| `UPLOAD_MAX_MB` | 100 | file size |
+
+Requests from this machine and from private networks (loopback, 10.x, 172.16-31.x, 192.168.x, which includes Docker's gateway)
+are **not** rate limited, so running the code, `indexer/bench.py` or the container on one's own computer is never slowed down
+(`RATE_LIMIT_PRIVATE=1` limits them too). Behind a reverse proxy set `TRUST_PROXY=1`: the client address is then read from
+`X-Forwarded-For`; without it every request looks like the proxy's private address and nothing is limited. A question is at most
+2000 characters. `0` switches a limit off. There is no authentication.
 
 Needs Python 3.10+ (set `PYTHON_BIN` when the default `python3` is older) and Node 22+. `better-sqlite3` is the only native Node
 dependency. Without a model key, known question patterns still work and other

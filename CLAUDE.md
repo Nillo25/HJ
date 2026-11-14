@@ -31,7 +31,7 @@ starts the indexer with `PYTHON_BIN` (default `python3`): point it at the right 
     python indexer/index.py <dataset> --db /tmp/x.db --only <source>
     python indexer/eval.py  <dataset> --db /tmp/x.db --source <source> [--show N]
     cd server && PYTHON_BIN=/path/to/python npm run dev   # needs server/.env
-    cd server && npm test                                 # question cache tests (node:test via tsx)
+    cd server && CACHE_DB=:memory: npm test                                 # question cache tests (node:test via tsx)
     docker build -t northline . && docker run --rm -p 3000:3000 -v northline-data:/data --env-file server/.env northline
     cd web && npm install && npm run build               # writes server/public
     cd server && npx tsc --noEmit --module nodenext --moduleResolution nodenext --target es2022 --skipLibCheck --strict src/index.ts

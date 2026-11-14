@@ -10,7 +10,7 @@ import { google } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { execFile } from 'node:child_process';
 import path from 'node:path';
-import { recordFailure, recordUsage, type Usage } from './usage.js';
+import { assertBudget, recordFailure, recordUsage, type Usage } from './usage.js';
 import { cacheGet, cachePut, floorsOf, queryElements, type Session } from './db.js';
 import { PYTHON } from './py.js';
 
@@ -29,6 +29,7 @@ const HAS_KEY = PROVIDER === 'openai'
 const MIN_GAP_MS = 60000 / Number(process.env.LLM_RPM ?? 40);
 let nextSlot = 0;
 async function gated<T>(fn: () => Promise<T>): Promise<T> {
+  assertBudget();
   for (let attempt = 0; ; attempt++) {
     const now = Date.now();
     const at = Math.max(now, nextSlot);
