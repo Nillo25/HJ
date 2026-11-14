@@ -5,13 +5,14 @@ deduplication). Order is by value for the demo.
 
 ## Before the demo
 
-1. **Run with a real model key.** Only a stub was used. Check question parsing
-   in several languages; count the tokens of failed calls.
-2. **Indexer limits.** Per-file timeout and page cap. The batch indexer
-   hangs on the large PDFs in `opening_design/*/Transfer/_Archive` because it
-   parses everything. Triage PDFs by size, page count and first-page text.
-3. **Deploy.** Python 3.10+ and Node 22+ in one image; `pdfminer.six`
-   installed, otherwise PDFs are silently left unparsed.
+1. **Measure the real model** (DeepSeek works through Verda). Compare DeepSeek and Kimi on 30-50 questions
+   (right / wrong / refused, tokens, cost, latency, languages); count the tokens of failed calls; cut the
+   facts sheet for `report` (3.7k tokens) by choosing blocks per question. A compound question
+   ("walls and columns together") was answered 846 instead of 883: refuse or split such questions.
+2. **Indexer limits.** Upload parsing has a timeout (`INDEX_TIMEOUT_S`). Still open: a page cap and
+   PDF triage for the batch indexer (55 large PDFs in `opening_design/*/Transfer/_Archive`).
+3. **Deploy.** Python 3.12 and Node 22+ in one image; `pdfminer.six` installed; set `PYTHON_BIN`;
+   persistent or disposable `uploads/` and `cache.db`.
 4. **Submission.** Pitch deck PDF, 2-minute video, demo set, peer review.
    Freeze 08:00 Sunday, submit by 10:00.
 
@@ -42,8 +43,9 @@ deduplication). Order is by value for the demo.
 13. Usage totals persist across restarts; count failed model calls.
 14. Capability card says `areas: none` for schedule sheets, but their areas
     are answered.
-15. One database for all uploads; names collide across uploads. Give each
-    upload its own database or a unique name.
+15. Done: per-upload index, see `docs/adr/0009`. Left: DXF plan over a PNG/PDF underlay is dropped (one file
+    per upload); plan viewer pan/zoom; tighter schedule row boxes (room rows span the whole sheet width);
+    IFC stairs (0 of 4 on esplanades) and the 27 plumbing fixtures without a readable shape.
 
 ## Unexplained
 

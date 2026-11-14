@@ -148,7 +148,7 @@ app.get('/api/drawings/:id/plan', (c) => {
 
   for (const e of els) {
     const key = bucket[e.type];
-    if (!key) continue;
+    if (!key || (!e.polygon && !e.bbox)) continue;     // counted in the data, but no shape to draw
     const item: any = { id: e.id, label: e.label, subtype: e.subtype };
     if (e.polygon) item.polygon = (JSON.parse(e.polygon) as number[][]).map(tx);
     if (e.bbox) item.bbox = txBox(JSON.parse(e.bbox));

@@ -28,21 +28,22 @@ refusal, so the system refuses and says what is missing.
 
 | Upload | Source of truth | Shown in the UI |
 |---|---|---|
-| DXF + PNG/PDF (same name) | DXF | Answer, evidence table, plan with highlighted objects |
-| IFC | IFC | Answer and evidence table only |
-| Vector PDF sheet (schedules) | PDF text and tables | Answer and evidence table only |
-| PNG plan (cubicasa-like) | not parsed yet | Refusal with the reason |
+| DXF (one file) | DXF | Answer, evidence table, plan drawn from the geometry with highlighted objects |
+| IFC (one file) | IFC | Answer, evidence table, plan per storey from element footprints |
+| Vector PDF sheet | PDF text and tables | Answer, evidence table, the sheet itself with the rows highlighted |
+| PNG plan (cubicasa-like) | not parsed yet | The image and a refusal with the reason |
 
-Files are grouped into one drawing by file name without extension.
+One file per upload; the user picks the kind. Each upload gets its own index (`uploads/<hash>/index.db`),
+so the same file is parsed once. See `docs/adr/0009`.
 
 ## Run
 
     pip install -r indexer/requirements.txt
     cd server && npm i && cp .env.example .env     # add a model key (optional)
     cd ../web && npm i && npm run build            # writes server/public
-    cd ../server && npm start                      # http://localhost:3000
+    cd ../server && PYTHON_BIN=python3.12 npm start   # http://localhost:3000
 
-Needs Python 3.10+ and Node 22+. `better-sqlite3` is the only native Node
+Needs Python 3.10+ (set `PYTHON_BIN` when the default `python3` is older) and Node 22+. `better-sqlite3` is the only native Node
 dependency. Without a model key, known question patterns still work and other
 questions are refused with that reason.
 

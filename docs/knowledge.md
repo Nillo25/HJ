@@ -64,14 +64,19 @@ disagrees with the code, the code wins; fix this file.
 - Refusal reasons in use: `parser` (format not parsed), `template` (unknown question, no model),
   `element` (nothing matched), `drawing`, `data`, `source_model` (plan PDF rendered from a model
   that is not in the set, e.g. FZK-Haus).
-- Server routes: `GET /api/drawings`, `/api/drawings/:id`, `/:id/plan` (SVG geometry in screen
-  coordinates), `/:id/source` (file, 413 above VIEWER_MAX_MB), `POST /api/ask`, `POST /api/upload`
-  (multipart, returns jobId), `GET /api/jobs/:id`, `/api/usage`, `/api/eval/latest`.
-  Upload saves files to `uploads/<id>/data/<id>/` and runs the indexer on that folder.
+- Server routes: `GET /api/drawings`, `/api/drawings/:uid`, `/:uid/plan[?floor=id]` (geometry in screen
+  coordinates; IFC returns `floors` and `coverage`, PDF returns a `background`), `/:uid/sheet.svg` (rendered
+  PDF page), `/:uid/image` (PNG as uploaded), `POST /api/ask {drawing_id: uid, question}`,
+  `POST /api/upload` (multipart: `kind` + exactly one file; returns jobId), `GET /api/jobs/:id`,
+  `/api/usage`, `/api/eval/latest` (only with `EVAL_DB`).
+  Per-upload model (docs/adr/0009): the file goes to `uploads/<uid>/data/<source>/`, the indexer writes
+  `uploads/<uid>/index.db`; `uid` = hash(indexer sources + kind + bytes), so the same file is a cache hit and a
+  parser change invalidates old indexes. `cache.db` holds only `question_cache`. Env: `PYTHON_BIN`,
+  `UPLOADS_DIR`, `CACHE_DB`, `UPLOAD_MAX_MB` (100), `INDEX_TIMEOUT_S` (120), `UPLOAD_TTL_HOURS` (24).
 - UI (`web/`): UploadPanel, DrawingList, question field + example chips (`web/src/examples.json`,
   from `data/examples.json`), AnswerCard (status, value, route, tokens, cost, time, "what was
-  run"), EvidenceTable, PlanViewer (DXF drawings only; evidence ids highlight objects; layer
-  toggles), UsageBar (questions, share answered without a model, tokens, cost, per-model badges).
+  run"), EvidenceTable, PlanViewer (DXF, IFC per storey, PDF sheet; evidence ids highlight objects, zoom
+  to the answer, layer toggles; IFC jumps to the storey of the answer), UsageBar (questions, share answered without a model, tokens, cost, per-model badges).
 - Models: Verda inference, OpenAI-compatible, base URL `https://inference.verda.com/v1`.
   DeepSeek 4.1 Flash 1017 (`deepseek-4-1-flash-1017`, EUR 0.1336 in / 0.5346 out per 1M, cached input
   0.0053, 1M context, image input, optional reasoning) and Kimi K3.1 Pro (EUR 1.79 / 8.95).
@@ -200,9 +205,21 @@ framing: answer 60% and be wrong 2%, rather than answer everything and be wrong 
 
 - The real-model path in several languages; tokens of failed calls; DeepSeek vs Kimi quality.
 - ifc_bench answers against the 249 expected texts (harness does not score text).
-- The 71 MB IFC in a browser (only Node).
-- The UI against a real upload on the Mac; large uploads; upload with name collisions.
+- Large uploads in the UI (the 74 MB IFC was uploaded through the API, 4.7 s, 310 MB of memory).
+- Plan quality on models other than esplanades and molio (ac20_arc, hitos_arc, DXF in the UI after the rewrite).
 - Capability card says `areas: none` for schedule sheets although areas are answered.
+
+## 8b. IFC plan (indexer/ifc_geom.py)
+
+- Per element: ObjectPlacement chain -> world matrix; Body (FootPrint for spaces) items:
+  IfcExtrudedAreaSolid (rectangle, circle, I-shape, closed polyline; vertical extrusion = exact outline, else hull),
+  IfcMappedItem, boolean results (first operand), anything else = convex hull of the reachable points.
+  Walls that only have an `Axis` representation get a 15 cm strip along it (thickness is a guess).
+- Measured: esplanades 1928 of 1932 drawn (stairs missing), molio 189/189 walls, clinic plumbing 92 of 119
+  fixtures; parse 1 to 5 s, up to 420 MB of memory. The UI prints "drawn N of M".
+- Storeys come from `owner`; elements without a storey are not primary and not drawn.
+- PDF: `render_pdf.py` draws lines, rectangles, curves and text of page 1 as SVG (A-801: 0.8 s, 391 KB);
+  schedule row bboxes are in PDF space, Y up.
 
 ## 9. Local files that are not in git
 

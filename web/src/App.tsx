@@ -112,6 +112,14 @@ export default function App() {
               {showPlan && current && <PlanViewer drawingId={current.id} highlight={highlight} hover={hover} floorHint={floorHint} />}
             </div>
           )}
+          {current?.kind === 'png' && (
+            <Card>
+              <CardBody className="space-y-2">
+                <img src={`/api/drawings/${current.id}/image`} alt="Uploaded raster plan" className="max-h-[32rem] w-full rounded-md border border-slate-200 bg-white object-contain" />
+                <p className="text-xs text-slate-500">Raster plans are shown as uploaded. Reading objects from pixels is not supported yet, so questions are refused with a reason.</p>
+              </CardBody>
+            </Card>
+          )}
           {!answer && showPlan && current && <PlanViewer drawingId={current.id} highlight={highlight} hover={hover} floorHint={floorHint} />}
         </main>
       </div>

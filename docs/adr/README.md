@@ -10,5 +10,6 @@
 | 0006 | Known patterns first, model as fallback, usage counted per model |
 | 0007 | Upload is a set of files; only DXF is drawn; IFC and PDF are question-only |
 | 0008 | Judge by wrong-answer rate on a language-deduplicated question set |
+| 0009 | One index per upload, manual kind, a plan for every kind |
 
 Format: Status, Context, Decision, Consequences. Date of all records: 2026-11-14.
