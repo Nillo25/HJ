@@ -4,89 +4,78 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { createReadStream, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import path from 'node:path';
 
 import {
-  db, listDrawings, drawingById, filesOf, floorsOf, queryElements, latestEval,
-  type Element,
+  KINDS, SOURCE_BY_KIND, UPLOADS, cleanupUploads, elementCount, ensureUploads, filesOf, floorsOf,
+  getSession, latestEval, listSessions, queryElements, metaPath,
+  type Element, type Kind, type Session,
 } from './db.js';
 import { ask } from './ask.js';
+import { PYTHON } from './py.js';
 import { countQuestion, usageSnapshot } from './usage.js';
+
+ensureUploads();
+cleanupUploads();
+setInterval(cleanupUploads, 3600_000).unref();
+
+const MAX_MB = Number(process.env.UPLOAD_MAX_MB ?? 100);
+const INDEX_TIMEOUT_S = Number(process.env.INDEX_TIMEOUT_S ?? 120);
+const EXT_BY_KIND: Record<Kind, string> = { dxf: '.dxf', ifc: '.ifc', pdf: '.pdf', png: '.png' };
 
 const app = new Hono();
 app.use('/api/*', cors());
 
-/* ------------------------------------------------------------ чертежи */
+/* ------------------------------------------------------------ drawings */
 
-app.get('/api/drawings', (c) => {
-  const limit = Number(c.req.query('limit') ?? 500);
-  const rows = (listDrawings.all(limit) as any[]).map((r) => ({
-    ...r,
-    capabilities: r.capabilities ? JSON.parse(r.capabilities) : null,
-  }));
-  return c.json({ drawings: rows });
-});
+function card(s: Session) {
+  return {
+    id: s.uid, name: s.meta.fileName.replace(/\.[^.]+$/, ''), kind: s.meta.kind,
+    source: s.drawing.source, status: s.drawing.status, capabilities: s.drawing.capabilities,
+    elements: elementCount(s.db, s.drawing.id), created_at: s.meta.createdAt,
+  };
+}
+
+app.get('/api/drawings', (c) => c.json({ drawings: listSessions().map(card) }));
 
 app.get('/api/drawings/:id', (c) => {
-  const id = Number(c.req.param('id'));
-  const d = drawingById.get(id) as any;
-  if (!d) return c.json({ error: 'not found' }, 404);
+  const s = getSession(c.req.param('id'));
+  if (!s) return c.json({ error: 'not found' }, 404);
   return c.json({
-    ...d,
-    capabilities: d.capabilities ? JSON.parse(d.capabilities) : null,
-    files: filesOf.all(id),
-    floors: floorsOf.all(id),
-    viewer: viewerInfo(id),
-    counts: db.prepare(
+    ...card(s),
+    files: filesOf(s.db, s.drawing.id),
+    floors: floorsOf(s.db, s.drawing.id),
+    counts: s.db.prepare(
       'SELECT type, subtype, COUNT(*) n FROM elements WHERE drawing_id=? GROUP BY type, subtype',
-    ).all(id),
+    ).all(s.drawing.id),
   });
 });
 
-/* ------------------------------------------- исходный файл для 3D-просмотрщика */
-
-const VIEWER_MAX_MB = Number(process.env.VIEWER_MAX_MB ?? 100);
-const ALLOWED_ROOTS = [path.resolve('uploads'), process.env.DATASET_ROOT]
-  .filter(Boolean).map((p) => path.resolve(p as string));
-
-function sourceFile(drawingId: number, format = 'ifc') {
-  const f = (filesOf.all(drawingId) as any[]).find((x) => x.format === format);
-  if (!f) return null;
-  const abs = path.resolve(f.path);
-  // serve only what we indexed ourselves
-  if (!ALLOWED_ROOTS.some((r) => abs.startsWith(r + path.sep)) || !existsSync(abs)) return null;
-  return { id: f.id, abs, mb: statSync(abs).size / 1e6 };
-}
-
-function viewerInfo(drawingId: number) {
-  const f = sourceFile(drawingId, 'ifc');
-  return f ? { format: 'ifc', file_id: f.id, size_mb: Math.round(f.mb * 10) / 10,
-               allowed: f.mb <= VIEWER_MAX_MB } : null;
-}
-
-app.get('/api/drawings/:id/source', (c) => {
-  const f = sourceFile(Number(c.req.param('id')));
-  if (!f) return c.json({ error: 'no source file' }, 404);
-  if (f.mb > VIEWER_MAX_MB) return c.json({ error: 'file too large for the viewer' }, 413);
-  return c.body(Readable.toWeb(createReadStream(f.abs)) as ReadableStream, 200, {
-    'content-type': 'application/octet-stream',
-    'content-length': String(statSync(f.abs).size),
+/** The original upload, for the raster display (PNG). */
+app.get('/api/drawings/:id/image', (c) => {
+  const s = getSession(c.req.param('id'));
+  if (!s || s.meta.kind !== 'png') return c.json({ error: 'no image' }, 404);
+  const abs = path.join(s.dir, 'data', SOURCE_BY_KIND.png, s.meta.fileName);
+  if (!existsSync(abs)) return c.json({ error: 'no image' }, 404);
+  return c.body(Readable.toWeb(createReadStream(abs)) as ReadableStream, 200, {
+    'content-type': 'image/png', 'content-length': String(statSync(abs).size),
   });
 });
 
-/* ------------------------------- геометрия для просмотрщика (см. §6 контракта) */
+/* ------------------------- geometry for the plan viewer (contract section 6) */
 
 app.get('/api/drawings/:id/plan', (c) => {
-  const id = Number(c.req.param('id'));
-  const els = queryElements.all({
-    drawing_id: id, type: null, subtype: null, floor: null, literal: null,
+  const s = getSession(c.req.param('id'));
+  if (!s) return c.json({ error: 'not found' }, 404);
+  const els = queryElements(s.db, {
+    drawing_id: s.drawing.id, type: null, subtype: null, floor: null, literal: null,
   }) as Element[];
-  if (!els.length) return c.json({ error: 'no geometry' }, 404);
+  if (!els.some((e) => e.bbox)) return c.json({ error: 'no geometry' }, 404);
 
-  // общий габарит -> экранный viewBox 1200 x N, ось Y переворачивается
+  // overall extent -> screen viewBox 1200 x N, the Y axis is flipped
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   for (const e of els) {
     if (!e.bbox) continue;
@@ -95,11 +84,11 @@ app.get('/api/drawings/:id/plan', (c) => {
     x1 = Math.max(x1, b[2]); y1 = Math.max(y1, b[3]);
   }
   const W = 1200;
-  const s = W / Math.max(x1 - x0, 1e-6);
-  const H = Math.round((y1 - y0) * s);
+  const sc = W / Math.max(x1 - x0, 1e-6);
+  const H = Math.round((y1 - y0) * sc);
   const tx = ([x, y]: number[]) => [
-    Math.round((x - x0) * s * 10) / 10,
-    Math.round((y1 - y) * s * 10) / 10,     // flip Y: в чертеже вверх, на экране вниз
+    Math.round((x - x0) * sc * 10) / 10,
+    Math.round((y1 - y) * sc * 10) / 10,
   ];
   const txBox = (b: number[]) => {
     const a = tx([b[0], b[3]]); const d2 = tx([b[2], b[1]]);
@@ -128,20 +117,16 @@ app.get('/api/drawings/:id/plan', (c) => {
   return c.json({ viewBox: [0, 0, W, H], layers });
 });
 
-/* --------------------------------------------------------------- вопрос */
+/* ------------------------------------------------------------- question */
 
 app.post('/api/ask', async (c) => {
-  const body = await c.req.json<{ question: string; drawing?: string; drawing_id?: number }>();
+  const body = await c.req.json<{ question: string; drawing_id?: string }>();
   if (!body?.question) return c.json({ error: 'question required' }, 400);
-
-  let name = body.drawing;
-  if (!name && body.drawing_id) {
-    name = (drawingById.get(body.drawing_id) as any)?.name;
-  }
-  if (!name) return c.json({ error: 'drawing required' }, 400);
+  const s = body.drawing_id ? getSession(body.drawing_id) : null;
+  if (!s) return c.json({ error: 'drawing required' }, 400);
 
   try {
-    const res: any = await ask(name, body.question);
+    const res: any = await ask(s, body.question);
     countQuestion(res.route === 'template' || res.route === 'cache');
     return c.json(res);
   } catch (e: any) {
@@ -150,56 +135,85 @@ app.post('/api/ask', async (c) => {
   }
 });
 
-/* -------------------------------------------------------- панель точности */
+/* ------------------------------------------------------- usage and eval */
 
 app.get('/api/usage', (c) => c.json(usageSnapshot()));
+app.get('/api/eval/latest', (c) => c.json({ rows: latestEval() }));
 
-app.get('/api/eval/latest', (c) => c.json({ rows: latestEval.all() }));
+/* ------------------------------------------------- upload and indexing */
 
-/* ------------------------------------------------- загрузка и индексация */
-
-type Job = { id: string; stage: string; done: number; total: number; log: string[]; finished: boolean; drawings: any[] };
+type Job = { id: string; stage: string; log: string[]; finished: boolean; drawings: any[] };
 const jobs = new Map<string, Job>();
+
+function finish(job: Job, ok: boolean, why?: string) {
+  job.finished = true;
+  job.stage = ok ? 'ready' : 'failed';
+  if (!ok && why) job.log.push(why);
+  if (ok) { const s = getSession(job.id); job.drawings = s ? [card(s)] : []; }
+}
 
 app.post('/api/upload', async (c) => {
   const form = await c.req.parseBody({ all: true });
-  const files = ([] as any[]).concat(form['files'] ?? form['file'] ?? []);
-  if (!files.length) return c.json({ error: 'no files' }, 400);
+  const kind = String(form['kind'] ?? '') as Kind;
+  const files = ([] as any[]).concat(form['files'] ?? form['file'] ?? []).filter((f) => f && typeof f !== 'string') as File[];
 
-  const id = randomUUID().slice(0, 8);
-  // the indexer expects <root>/data/<source>/<files>; each upload is its own source
-  const root = path.resolve('uploads', id);
-  const dir = path.join(root, 'data', id);
-  mkdirSync(dir, { recursive: true });
-
-  const stems: string[] = [];
-  for (const f of files as File[]) {
-    const name = path.basename(f.name);                 // no path tricks from the client
-    writeFileSync(path.join(dir, name), Buffer.from(await f.arrayBuffer()));
-    stems.push(name.replace(/\.[^.]+$/, ''));
+  // routing is manual: the user picks the kind of material, we never sniff it
+  if (!KINDS.includes(kind)) return c.json({ error: `kind must be one of ${KINDS.join(', ')}` }, 400);
+  if (files.length !== 1) return c.json({ error: 'upload exactly one file' }, 400);
+  const f = files[0];
+  const name = path.basename(f.name);
+  const ext = path.extname(name).toLowerCase();
+  if (ext !== EXT_BY_KIND[kind]) {
+    return c.json({ error: `kind "${kind}" expects a ${EXT_BY_KIND[kind]} file, got "${ext || name}"` }, 400);
   }
+  if (f.size > MAX_MB * 1e6) return c.json({ error: `file is larger than ${MAX_MB} MB` }, 413);
 
-  const job: Job = { id, stage: 'indexing', done: 0, total: files.length, log: [], finished: false, drawings: [] };
-  jobs.set(id, job);
+  const buf = Buffer.from(await f.arrayBuffer());
+  const uid = createHash('sha256').update(kind).update('\0').update(buf).digest('hex').slice(0, 16);
 
-  // the indexer is a separate Python process, once per upload
-  const p = spawn('python3', [path.resolve('../indexer/index.py'), root, '--db', process.env.DB_PATH ?? '../app.db']);
-  p.stdout.on('data', (d) => { job.log.push(String(d)); });
-  p.stderr.on('data', (d) => { job.log.push(String(d)); });
+  // same file again: the index is the cache
+  const existing = getSession(uid);
+  if (existing) {
+    const job: Job = { id: uid, stage: 'ready', log: ['cached'], finished: true, drawings: [card(existing)] };
+    jobs.set(uid, job);
+    return c.json({ jobId: uid, cached: true });
+  }
+  if (jobs.get(uid) && !jobs.get(uid)!.finished) return c.json({ jobId: uid });
+
+  // the indexer expects <root>/data/<source>/<files>
+  const root = path.join(UPLOADS, uid);
+  rmSync(root, { recursive: true, force: true });
+  const dir = path.join(root, 'data', SOURCE_BY_KIND[kind]);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, name), buf);
+
+  const job: Job = { id: uid, stage: 'indexing', log: [], finished: false, drawings: [] };
+  jobs.set(uid, job);
+
+  const p = spawn(PYTHON, [path.resolve('../indexer/index.py'), root, '--db', path.join(root, 'index.db')]);
+  const timer = setTimeout(() => { p.kill(); }, INDEX_TIMEOUT_S * 1000);
+  let timedOut = false;
+  p.on('exit', (_c, sig) => { if (sig) timedOut = true; });
+  p.stdout.on('data', (d) => job.log.push(String(d)));
+  p.stderr.on('data', (d) => job.log.push(String(d)));
+  p.on('error', (e) => { clearTimeout(timer); finish(job, false, `cannot start ${PYTHON}: ${e.message}`); });
   p.on('close', (code) => {
-    job.finished = true;
-    job.stage = code === 0 ? 'ready' : 'failed';
-    if (code === 0) {
-      const names = [...new Set(stems)];
-      job.drawings = db.prepare(
-        `SELECT d.id, d.name, d.source, d.capabilities,
-                (SELECT COUNT(*) FROM elements e WHERE e.drawing_id = d.id) AS elements
-           FROM drawings d WHERE d.name IN (${names.map(() => '?').join(',')})`,
-      ).all(...names).map((r: any) => ({ ...r, capabilities: r.capabilities ? JSON.parse(r.capabilities) : null }));
+    clearTimeout(timer);
+    if (job.finished) return;
+    if (timedOut) return finish(job, false, `parsing took longer than ${INDEX_TIMEOUT_S} s: file is too complex for the limit`);
+    if (code !== 0) return finish(job, false, 'indexer failed');
+    writeFileSync(metaPath(uid), JSON.stringify({ kind, fileName: name, createdAt: Date.now(), ready: true }));
+    const s = getSession(uid);
+    if (!s) return finish(job, false, 'nothing was indexed');
+    // a structured format that produced no objects failed to parse: say why instead of an empty drawing
+    if (kind !== 'png' && elementCount(s.db, s.drawing.id) === 0) {
+      const note = (filesOf(s.db, s.drawing.id)[0]?.note as string | undefined) ?? 'no objects found';
+      return finish(job, false, `could not parse the file: ${note}`);
     }
+    finish(job, true);
   });
 
-  return c.json({ jobId: id });
+  return c.json({ jobId: uid });
 });
 
 app.get('/api/jobs/:id', (c) => {
@@ -214,11 +228,10 @@ app.get('/api/jobs/:id', (c) => {
   });
 });
 
-/* ------------------------------------------- статика: собранный фронт последним */
+/* ------------------------------------------- static: the built front last */
 
 app.use('/*', serveStatic({ root: './public' }));
 app.get('*', serveStatic({ path: './public/index.html' }));
 
 const port = Number(process.env.PORT ?? 3000);
-serve({ fetch: app.fetch, port });
-console.log(`http://localhost:${port}`);
+serve({ fetch: app.fetch, port }, () => console.log(`http://localhost:${port}`));

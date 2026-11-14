@@ -13,7 +13,7 @@ const STYLE: Record<string, { fill: string; stroke: string; width: number; label
 const ORDER = ['rooms', 'apartments', 'walls', 'windows', 'doors', 'fixtures'];
 
 /** Draws the parsed plan and marks the elements the answer was computed from. */
-export function PlanViewer({ drawingId, highlight, hover }: { drawingId: number; highlight: Set<number>; hover: number | null }) {
+export function PlanViewer({ drawingId, highlight, hover }: { drawingId: string; highlight: Set<number>; hover: number | null }) {
   const [plan, setPlan] = useState<Plan | null | undefined>(undefined);
   const [off, setOff] = useState<Set<string>>(new Set());
 

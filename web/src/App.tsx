@@ -11,7 +11,6 @@ import { Button, Card, CardBody, Input } from './components/ui';
 
 type Ex = { q: string; type: string; drawing: string };
 const EXAMPLES = examples as Record<string, Ex[]>;
-const BY_FORMAT: Record<string, string> = { dxf: 'swiss_dwellings', ifc: 'ifc_models', pdf: 'opening_design', png: 'cubicasa5k' };
 
 export default function App() {
   const [drawings, setDrawings] = useState<Drawing[]>([]);
@@ -33,14 +32,8 @@ export default function App() {
     try { setCurrent(await getDrawing(d.id)); } catch { /* keep the list row */ }
   }, []);
 
-  // only DXF drawings are shown on a plan: IFC and PDF sheets are question-only
-  const formats = useMemo(() => new Set((current?.files ?? []).map(f => f.format.replace('.', '').toLowerCase())), [current]);
-  const showPlan = formats.has('dxf');
-  const chips = useMemo(() => {
-    if (!current) return [];
-    const key = EXAMPLES[current.source] ? current.source : BY_FORMAT[[...formats][0] ?? ''];
-    return (EXAMPLES[key] ?? []).slice(0, 6);
-  }, [current, formats]);
+  const showPlan = current?.kind === 'dxf';
+  const chips = useMemo(() => (current ? (EXAMPLES[current.source] ?? []).slice(0, 6) : []), [current]);
 
   async function run(q: string) {
     if (!current || !q.trim()) return;
@@ -49,7 +42,7 @@ export default function App() {
     setAnswer(null);
     setLoading(true);
     try {
-      setAnswer(await ask(current.name, q));
+      setAnswer(await ask(current.id, q));
     } catch (e) {
       setAnswer({ status: 'refused', reason: e instanceof Error ? e.message : String(e), missing: 'server' });
     } finally {

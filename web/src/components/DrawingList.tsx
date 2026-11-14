@@ -9,7 +9,7 @@ const LABEL: Record<string, string> = {
   cubicasa5k: 'PNG plan',
 };
 
-export function DrawingList({ drawings, selected, onSelect }: { drawings: Drawing[]; selected: number | null; onSelect: (d: Drawing) => void }) {
+export function DrawingList({ drawings, selected, onSelect }: { drawings: Drawing[]; selected: string | null; onSelect: (d: Drawing) => void }) {
   return (
     <Card>
       <CardHeader>

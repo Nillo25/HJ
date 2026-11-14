@@ -1,6 +1,9 @@
+export type Kind = 'dxf' | 'ifc' | 'pdf' | 'png';
+
 export type Drawing = {
-  id: number;
+  id: string;
   name: string;
+  kind: Kind;
   source: string;
   status: string;
   elements: number;
@@ -58,22 +61,24 @@ async function j<T>(r: Response): Promise<T> {
 }
 
 export const getDrawings = () => fetch('/api/drawings?limit=500').then(r => j<{ drawings: Drawing[] }>(r)).then(d => d.drawings);
-export const getDrawing = (id: number) => fetch(`/api/drawings/${id}`).then(r => j<Drawing>(r));
-export const getPlan = (id: number) => fetch(`/api/drawings/${id}/plan`).then(r => (r.ok ? (r.json() as Promise<Plan>) : null));
+export const getDrawing = (id: string) => fetch(`/api/drawings/${id}`).then(r => j<Drawing>(r));
+export const getPlan = (id: string) => fetch(`/api/drawings/${id}/plan`).then(r => (r.ok ? (r.json() as Promise<Plan>) : null));
 export const getUsage = () => fetch('/api/usage').then(r => j<UsageTotals>(r));
 
-export const ask = (drawing: string, question: string) =>
+export const ask = (drawingId: string, question: string) =>
   fetch('/api/ask', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ drawing, question }),
+    body: JSON.stringify({ drawing_id: drawingId, question }),
   }).then(r => j<Answer>(r));
 
-export async function upload(files: File[]): Promise<string> {
+export async function upload(kind: Kind, file: File): Promise<string> {
   const fd = new FormData();
-  for (const f of files) fd.append('files', f);
-  const r = await j<{ jobId: string }>(await fetch('/api/upload', { method: 'POST', body: fd }));
-  return r.jobId;
+  fd.append('kind', kind);
+  fd.append('files', file);
+  const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `${res.status} ${res.statusText}`);
+  return ((await res.json()) as { jobId: string }).jobId;
 }
 
 export type Job = { stage: string; log: string[]; finished: boolean; drawings: Drawing[] };

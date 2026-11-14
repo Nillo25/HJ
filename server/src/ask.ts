@@ -11,8 +11,9 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { recordUsage, type Usage } from './usage.js';
-import { cacheGet, cachePut, floorsOf, queryElements, type Element } from './db.js';
-import { FNS, resolveDrawing } from './tools.js';
+import { cacheGet, cachePut, floorsOf, queryElements, type Element, type Session } from './db.js';
+import { FNS } from './tools.js';
+import { PYTHON } from './py.js';
 
 /** Question parsing model. LLM_PROVIDER=openai|google, LLM_MODEL overrides the default. */
 const PROVIDER = process.env.LLM_PROVIDER ?? (process.env.OPENAI_API_KEY ? 'openai' : 'google');
@@ -23,11 +24,11 @@ const HAS_KEY = PROVIDER === 'openai'
   ? !!process.env.OPENAI_API_KEY : !!process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
 /** Known question templates live in Python; a hit costs nothing. */
-function pyTemplate(drawing: string, question: string): Promise<any | null> {
+function pyTemplate(s: Session, question: string): Promise<any | null> {
   return new Promise((resolve) => {
-    execFile('python3', [
+    execFile(PYTHON, [
       path.resolve('../indexer/ask_cli.py'),
-      '--db', process.env.DB_PATH ?? '../app.db', '--drawing', drawing, '--question', question,
+      '--db', s.dbPath, '--drawing', s.drawing.name, '--question', question,
     ], { timeout: 20000, maxBuffer: 8e6 }, (err, out) => {
       if (err) return resolve(null);
       try { resolve(JSON.parse(out)); } catch { resolve(null); }
@@ -36,11 +37,11 @@ function pyTemplate(drawing: string, question: string): Promise<any | null> {
 }
 
 /** Facts sheet of an IFC model, computed from the index (no model). */
-function pyFacts(drawing: string): Promise<any | null> {
+function pyFacts(s: Session): Promise<any | null> {
   return new Promise((resolve) => {
-    execFile('python3', [
+    execFile(PYTHON, [
       path.resolve('../indexer/ifc_facts.py'),
-      '--db', process.env.DB_PATH ?? '../app.db', '--drawing', drawing,
+      '--db', s.dbPath, '--drawing', s.drawing.name,
     ], { timeout: 20000, maxBuffer: 8e6 }, (err, out) => {
       if (err) return resolve(null);
       try { resolve(JSON.parse(out)); } catch { resolve(null); }
@@ -49,8 +50,8 @@ function pyFacts(drawing: string): Promise<any | null> {
 }
 
 /** Free-form question about a whole model: the model only phrases facts computed in Python. */
-async function report(d: { id: number; row: any }, question: string, t0: number, prior: Usage[], priorCost: number, route: string) {
-  const facts = await pyFacts(d.row.name);
+async function report(d: Session, question: string, t0: number, prior: Usage[], priorCost: number, route: string) {
+  const facts = await pyFacts(d);
   if (!facts || !Object.keys(facts).length) {
     return { status: 'refused', reason: 'no facts could be computed for this model', missing: 'data',
              route, cost_usd: priorCost, usage: prior, latency_ms: Date.now() - t0 };
@@ -143,9 +144,9 @@ function scheduleLabel(r: Element): string | null {
   } catch { return r.label; }
 }
 
-function evidenceOf(rows: Element[], drawingId: number, limit = 50) {
+function evidenceOf(d: Session, rows: Element[], limit = 50) {
   const floors = new Map<number, string>(
-    (floorsOf.all(drawingId) as any[]).map((f) => [f.id, f.name]),
+    floorsOf(d.db, d.drawing.id).map((f) => [f.id, f.name]),
   );
   return rows.slice(0, limit).map((r) => ({
     kind: r.source_ref && r.source_ref.length === 22 ? 'ifc' : 'geom',
@@ -157,26 +158,13 @@ function evidenceOf(rows: Element[], drawingId: number, limit = 50) {
 
 /* ------------------------------------------------------------- главное */
 
-export async function ask(drawingName: string, question: string) {
+export async function ask(d: Session, question: string) {
   const t0 = Date.now();
-  const d = resolveDrawing(drawingName);
-  if (!d) {
-    return { status: 'refused', reason: 'чертёж не найден', missing: 'drawing',
-             route: 'cache', cost_usd: 0, latency_ms: Date.now() - t0 };
-  }
+  const drawingId = d.drawing.id;
 
-  const tpl = await pyTemplate(d.row.name, question);
+  const tpl = await pyTemplate(d, question);
   if (tpl && !(tpl.status === 'refused' && tpl.missing === 'template')) {
     return { ...tpl, route: 'template', usage: [], latency_ms: Date.now() - t0 };
-  }
-
-  // whole-model IFC sets are asked free-form: skip the parsing call, one model call total
-  if (d.row.source === 'ifc_bench') {
-    if (!HAS_KEY) {
-      return { status: 'refused', reason: 'free-form model questions need a model key', missing: 'template',
-               route: 'none', usage: [], cost_usd: 0, latency_ms: Date.now() - t0 };
-    }
-    return report(d, question, t0, [], 0, 'llm');
   }
 
   const { template, slots } = templatize(question);
@@ -185,7 +173,7 @@ export async function ask(drawingName: string, question: string) {
   let cost = 0;
   const used: Usage[] = [];
 
-  const hit = cacheGet.get(template) as { fn: string; args: string } | undefined;
+  const hit = cacheGet(template);
   if (hit) {
     parsed = { fn: hit.fn, ...fill(JSON.parse(hit.args), slots) };
   } else {
@@ -195,10 +183,10 @@ export async function ask(drawingName: string, question: string) {
                missing: 'template', route: 'none', usage: [], cost_usd: 0, latency_ms: Date.now() - t0 };
     }
     // контекст чертежа: без него «на третьем этаже» не превратится в «3.korrus»
-    const floors = (floorsOf.all(d.id) as any[]).map((f) => f.name).filter(Boolean);
+    const floors = floorsOf(d.db, drawingId).map((f) => f.name).filter(Boolean);
     const labels = [...new Set(
-      (queryElements.all({ drawing_id: d.id, type: 'room', subtype: null,
-                           floor: null, literal: null }) as Element[])
+      queryElements(d.db, { drawing_id: drawingId, type: 'room', subtype: null,
+                            floor: null, literal: null })
         .map((r) => r.label).filter(Boolean),
     )].slice(0, 120);
 
@@ -210,7 +198,11 @@ export async function ask(drawingName: string, question: string) {
         'Ты превращаешь вопрос о строительном чертеже в вызов функции. ' +
         'Отвечай только выбором функции и аргументов, ничего не вычисляй. ' +
         'Вопрос может быть на любом языке. ' +
-        'Если вопрос не ложится ни на одну функцию — выбирай unsupported.',
+        'Если вопрос не ложится ни на одну функцию — выбирай unsupported. ' +
+        (d.meta.kind === 'ifc'
+          ? 'Для IFC-модели описательные вопросы (ПО и версия, перечень, группировка, распределение, ' +
+            'самое большое/узкое/высокое, сводка по уровням) — это report, а не unsupported. '
+          : ''),
       prompt:
         `Этажи этого чертежа: ${floors.length ? floors.join(' | ') : 'нет'}\n` +
         `Подписи помещений: ${labels.join(' | ') || 'нет'}\n\n` +
@@ -223,9 +215,12 @@ export async function ask(drawingName: string, question: string) {
 
     if (object.fn !== 'unsupported') {
       const { fn, ...args } = object as any;
-      cachePut.run(template, fn, JSON.stringify(args));
+      cachePut(template, fn, JSON.stringify(args));
     }
   }
+
+  // a descriptive IFC question that no function covers: phrase it from the facts sheet
+  if (parsed.fn === 'unsupported' && d.meta.kind === 'ifc') return report(d, question, t0, used, cost, route);
 
   if (parsed.fn === 'unsupported') {
     return { status: 'refused', reason: parsed.reason ?? 'тип вопроса не поддержан',
@@ -243,7 +238,7 @@ export async function ask(drawingName: string, question: string) {
              latency_ms: Date.now() - t0 };
   }
 
-  const { value, rows } = impl({ drawing_id: d.id, ...args });
+  const { value, rows } = impl({ db: d.db, drawing_id: drawingId, ...args });
 
   if (value === null) {
     return { status: 'refused', reason: 'в данных не найдено', missing: 'element',
@@ -262,7 +257,7 @@ export async function ask(drawingName: string, question: string) {
     unit,
     confidence,
     route,
-    evidence: evidenceOf(rows, d.id),
+    evidence: evidenceOf(d, rows),
     cost_usd: cost,
     usage: used,
     latency_ms: Date.now() - t0,
