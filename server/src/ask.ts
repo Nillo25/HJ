@@ -7,8 +7,8 @@
 import { z } from 'zod';
 import { generateObject } from 'ai';
 import { google } from '@ai-sdk/google';
-import { cacheGet, cachePut, floorsOf, queryElements } from './db.js';
-import { FNS, resolveDrawing, type Element } from './tools.js';
+import { cacheGet, cachePut, floorsOf, queryElements, type Element } from './db.js';
+import { FNS, resolveDrawing } from './tools.js';
 
 const MODEL = google('gemini-2.5-flash');
 
@@ -72,14 +72,16 @@ function fill(args: any, slots: string[]) {
 
 /* ------------------------------------------------------- доказательство */
 
-function evidenceOf(rows: Element[], limit = 50) {
-  return rows.slice(0, limit).map((r) =>
-    r.source_ref && r.source_ref.length === 22
-      ? { kind: 'ifc', ref: r.source_ref, label: r.label }
-      : r.polygon
-        ? { kind: 'geom', id: r.id, ref: r.source_ref, label: r.label }
-        : { kind: 'geom', id: r.id, label: r.label },
+function evidenceOf(rows: Element[], drawingId: number, limit = 50) {
+  const floors = new Map<number, string>(
+    (floorsOf.all(drawingId) as any[]).map((f) => [f.id, f.name]),
   );
+  return rows.slice(0, limit).map((r) => ({
+    kind: r.source_ref && r.source_ref.length === 22 ? 'ifc' : 'geom',
+    id: r.id, ref: r.source_ref, type: r.type, subtype: r.subtype,
+    label: r.label, floor: r.floor_id ? floors.get(r.floor_id) ?? null : null,
+    page: r.page, bbox: r.bbox,
+  }));
 }
 
 /* ------------------------------------------------------------- главное */
@@ -166,7 +168,7 @@ export async function ask(drawingName: string, question: string) {
     unit,
     confidence,
     route,
-    evidence: evidenceOf(rows),
+    evidence: evidenceOf(rows, d.id),
     cost_usd: cost,
     latency_ms: Date.now() - t0,
     fn,

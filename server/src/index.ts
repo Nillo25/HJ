@@ -5,7 +5,8 @@ import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { Readable } from 'node:stream';
 import path from 'node:path';
 
 import {
@@ -37,9 +38,41 @@ app.get('/api/drawings/:id', (c) => {
     capabilities: d.capabilities ? JSON.parse(d.capabilities) : null,
     files: filesOf.all(id),
     floors: floorsOf.all(id),
+    viewer: viewerInfo(id),
     counts: db.prepare(
       'SELECT type, subtype, COUNT(*) n FROM elements WHERE drawing_id=? GROUP BY type, subtype',
     ).all(id),
+  });
+});
+
+/* ------------------------------------------- исходный файл для 3D-просмотрщика */
+
+const VIEWER_MAX_MB = Number(process.env.VIEWER_MAX_MB ?? 100);
+const ALLOWED_ROOTS = [path.resolve('uploads'), process.env.DATASET_ROOT]
+  .filter(Boolean).map((p) => path.resolve(p as string));
+
+function sourceFile(drawingId: number, format = 'ifc') {
+  const f = (filesOf.all(drawingId) as any[]).find((x) => x.format === format);
+  if (!f) return null;
+  const abs = path.resolve(f.path);
+  // serve only what we indexed ourselves
+  if (!ALLOWED_ROOTS.some((r) => abs.startsWith(r + path.sep)) || !existsSync(abs)) return null;
+  return { id: f.id, abs, mb: statSync(abs).size / 1e6 };
+}
+
+function viewerInfo(drawingId: number) {
+  const f = sourceFile(drawingId, 'ifc');
+  return f ? { format: 'ifc', file_id: f.id, size_mb: Math.round(f.mb * 10) / 10,
+               allowed: f.mb <= VIEWER_MAX_MB } : null;
+}
+
+app.get('/api/drawings/:id/source', (c) => {
+  const f = sourceFile(Number(c.req.param('id')));
+  if (!f) return c.json({ error: 'no source file' }, 404);
+  if (f.mb > VIEWER_MAX_MB) return c.json({ error: 'file too large for the viewer' }, 413);
+  return c.body(Readable.toWeb(createReadStream(f.abs)) as ReadableStream, 200, {
+    'content-type': 'application/octet-stream',
+    'content-length': String(statSync(f.abs).size),
   });
 });
 
@@ -140,7 +173,7 @@ app.post('/api/upload', async (c) => {
   jobs.set(id, job);
 
   // индексатор — отдельный процесс на Python, один раз на загрузку
-  const p = spawn('python3', [path.resolve('../index.py'), dir, '--db', process.env.DB_PATH ?? '../app.db']);
+  const p = spawn('python3', [path.resolve('../indexer/index.py'), dir, '--db', process.env.DB_PATH ?? '../app.db']);
   p.stdout.on('data', (d) => { job.log.push(String(d)); });
   p.stderr.on('data', (d) => { job.log.push(String(d)); });
   p.on('close', (code) => { job.finished = true; job.stage = code === 0 ? 'ready' : 'failed'; });

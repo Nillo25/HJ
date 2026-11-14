@@ -342,7 +342,19 @@ FNS = {"count_objects": count_objects, "room_area": room_area,
        "schedule": schedule}
 
 
-def evidence_of(rows, limit=50):
+def evidence_of(rows, con, limit=50):
+    """One entry per element behind the answer: enough for a table row
+    (what, where) and for highlighting (ref = IFC GlobalId, bbox or id)."""
+    floors = {}
+
+    def floor_name(fid):
+        if fid is None:
+            return None
+        if fid not in floors:
+            r = con.execute("SELECT name FROM floors WHERE id=?", (fid,)).fetchone()
+            floors[fid] = r[0] if r else None
+        return floors[fid]
+
     out = []
     for r in rows[:limit]:
         k = set(r.keys())
@@ -350,13 +362,12 @@ def evidence_of(rows, limit=50):
             out.append({"kind": "page", "id": r["id"], "label": r["text"],
                         "bbox": r["bbox"]})
             continue
-        if r["source_ref"] and len(str(r["source_ref"])) == 22:
-            out.append({"kind": "ifc", "ref": r["source_ref"], "label": r["label"]})
-        elif r["polygon"]:
-            out.append({"kind": "geom", "ref": r["source_ref"], "id": r["id"],
-                        "label": r["label"]})
-        else:
-            out.append({"kind": "geom", "id": r["id"], "label": r["label"]})
+        ref = r["source_ref"]
+        kind = "ifc" if ref and len(str(ref)) == 22 else "geom"
+        out.append({"kind": kind, "id": r["id"], "ref": ref, "type": r["type"],
+                    "subtype": r["subtype"], "label": r["label"],
+                    "floor": floor_name(r["floor_id"]), "page": r["page"],
+                    "bbox": r["bbox"]})
     return out
 
 
@@ -396,7 +407,7 @@ def ask(con, drawing: str, question: str) -> dict:
     if fn == "schedule":
         unit = "sf" if "area" in kw["q"].lower() else ("text" if isinstance(value, str) else "count")
         return {"status": "answered", "answer": value, "unit": unit, "confidence": 1.0,
-                "route": "cache", "evidence": evidence_of(rows), "cost_usd": 0.0,
+                "route": "cache", "evidence": evidence_of(rows, con), "cost_usd": 0.0,
                 "fn": fn, "args": {}}
     unit = ("m2" if fn in ("room_area", "apartment_area")
             or kw.get("field") == "area" else "count")
@@ -404,5 +415,5 @@ def ask(con, drawing: str, question: str) -> dict:
     return {"status": "answered" if conf >= 1.0 else "estimated",
             "answer": round(value, 2) if unit == "m2" else value,
             "unit": unit, "confidence": conf, "route": "cache",
-            "evidence": evidence_of(rows), "cost_usd": 0.0,
+            "evidence": evidence_of(rows, con), "cost_usd": 0.0,
             "fn": fn, "args": kw}
