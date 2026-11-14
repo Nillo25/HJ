@@ -39,7 +39,6 @@ COPY server ./server
 COPY web ./web
 RUN chmod -R a+rX /app && useradd --create-home app && mkdir -p /data/scenes && chown -R app:app /data
 USER app
-VOLUME /data
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
   CMD python -c "import os,urllib.request as u; u.urlopen('http://localhost:'+os.environ['PORT']+'/api/meta', timeout=4)"

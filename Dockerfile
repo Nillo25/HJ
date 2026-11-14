@@ -48,7 +48,6 @@ RUN chmod -R a+rX /app && /opt/venv/bin/python -m compileall -q /app/indexer \
     && mkdir -p /data && chown -R node:node /data
 WORKDIR /app/server
 USER node
-VOLUME /data
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD node -e "fetch('http://localhost:'+process.env.PORT+'/api/usage').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
