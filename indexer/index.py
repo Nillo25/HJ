@@ -12,7 +12,6 @@ import hashlib
 import json
 import os
 import sqlite3
-import sys
 import time
 
 import labels as L
@@ -86,20 +85,22 @@ def main():
         groups = dict(list(groups.items())[: a.limit])
     print(f"drawings to parse: {len(groups)}")
 
-    unknown: set[str] = set()
     t0 = time.time()
     done = failed = 0
 
     for (src, stem), paths in groups.items():
-        cur = con.execute(
+        con.execute(
             "INSERT OR IGNORE INTO drawings(name, source, status) VALUES (?,?,'indexing')",
             (stem, src))
         did = con.execute("SELECT id FROM drawings WHERE name=?", (stem,)).fetchone()[0]
 
         formats = set()
+        exts = {os.path.splitext(p)[1].lower() for p in paths}
         for p in sorted(paths):
             ext = os.path.splitext(p)[1].lower()
             formats.add(ext)
+            if ext == ".pdf" and exts & {".dxf", ".ifc"}:
+                continue          # the PDF next to a DXF or IFC is the same drawing rendered: reading it too would count every label twice
             try:
                 digest = sha256(p)
             except OSError as e:
@@ -151,10 +152,6 @@ def main():
                         "INSERT INTO text_spans(file_id, page, text, bbox) VALUES (?,?,?,?)",
                         (fid, r.get("page"), r["label"], r["bbox"]))
                     continue
-                if r.get("label") and r.get("type") == "room" and not r.get("subtype"):
-                    n = L.norm(r["label"])
-                    if n and not L.NUMBER_RE.match(r["label"].strip()):
-                        unknown.add(n)
                 con.execute(
                     """INSERT INTO elements
                        (drawing_id, file_id, floor_id, type, subtype, label, label_norm,
@@ -175,13 +172,6 @@ def main():
             print(f"  {done}/{len(groups)}  {time.time()-t0:.0f}s")
 
     con.commit()
-
-    if unknown:
-        out = os.path.join(os.path.dirname(a.db) or ".", "unknown_labels.txt")
-        with open(out, "w", encoding="utf-8") as f:
-            f.write("\n".join(sorted(unknown)))
-        print(f"\nunknown labels: {len(unknown)} -> {out}")
-        print("resolve them in one batch: python resolve_labels.py")
 
     n_el = con.execute("SELECT COUNT(*) FROM elements").fetchone()[0]
     print(f"\ndone: drawings {done}, failed {failed}, elements {n_el}, "

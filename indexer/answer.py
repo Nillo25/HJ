@@ -297,11 +297,6 @@ def _dim(s):
     return re.sub(r"\s*-\s*", "-", s)
 
 
-def _inches(s):
-    m = re.match(r"(\d+)['\u2019]\s*-\s*(\d+)", s)
-    return int(m.group(1)) * 12 + int(m.group(2)) if m else None
-
-
 def schedule(con, drawing, q):
     """Door schedule and finish room schedule on one sheet. Questions are
     matched by pattern; every branch returns the table rows it used."""

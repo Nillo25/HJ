@@ -74,7 +74,7 @@ def blocks_of(pairs):
     out, name, base, buf = {}, None, (0.0, 0.0), []
     for c, v in section(pairs, "BLOCKS"):
         if c == "0" and v == "BLOCK":
-            name, base, buf, hdr = None, (0.0, 0.0), [], True
+            name, base, buf = None, (0.0, 0.0), []
         elif c == "0" and v == "ENDBLK":
             if name is not None:
                 out[name] = (base, entities(buf))

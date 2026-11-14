@@ -12,12 +12,6 @@ import math
 
 # ------------------------------------------------------------- geometry
 
-def bbox_of(points):
-    xs = [p[0] for p in points]
-    ys = [p[1] for p in points]
-    return [min(xs), min(ys), max(xs), max(ys)]
-
-
 def bbox_union(a, b):
     return [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
 
@@ -84,7 +78,6 @@ def cluster(prims, gap=0.05):
 def classify_fixture(group, room_subtype: str | None) -> tuple[str | None, float]:
     """-> (subtype, confidence). None means unrecognised -> fixture/other."""
     _, _, long, short, aspect = dims(group["bbox"])
-    area = long * short
 
     # bathtub: long and narrow
     if 1.4 <= long <= 2.0 and 0.6 <= short <= 0.9:
@@ -109,45 +102,3 @@ def classify_fixture(group, room_subtype: str | None) -> tuple[str | None, float
         return "sink", 0.55
 
     return None, 0.3
-
-
-# ------------------------------------------------ doors from primitives
-
-def classify_door(group) -> tuple[str, float]:
-    """Door type from a clustered group.
-
-    The naive "one arc = one door" rule scored 56%: sliding doors have no
-    arc and double doors have two. Count groups; arcs inside a group give
-    the subtype.
-    """
-    arcs = sum(1 for m in group["members"] if m.get("shape") == "arc")
-    _, _, long, _, _ = dims(group["bbox"])
-    if arcs >= 2:
-        return "double", 0.9
-    if arcs == 1:
-        return "single", 0.9
-    if long >= 0.6:
-        return "sliding", 0.6      # leaf without an arc
-    return "opening", 0.5          # opening with no leaf - NOT a door
-
-
-# ------------------------------------------------------------ diagnostics
-
-def histogram(groups, bins=(0.2, 0.4, 0.6, 0.8, 1.0, 1.3, 1.6, 2.0, 3.0)):
-    """Size distribution - look at this BEFORE picking thresholds.
-
-    If sizes fall into clear bands, thresholds are obvious.
-    If they smear, clustering is broken - fix that, not the thresholds.
-    """
-    rows = []
-    for g in groups:
-        _, _, long, short, aspect = dims(g["bbox"])
-        rows.append((round(long, 2), round(short, 2), round(aspect, 2), g["n"]))
-    rows.sort(reverse=True)
-    counts = {b: 0 for b in bins}
-    for long, *_ in rows:
-        for b in bins:
-            if long <= b:
-                counts[b] += 1
-                break
-    return rows, counts

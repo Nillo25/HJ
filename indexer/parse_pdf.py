@@ -9,7 +9,7 @@ import json
 import re
 
 from pdfminer.high_level import extract_pages
-from pdfminer.layout import LTCurve, LTFigure, LTImage, LTLine, LTRect, LTTextLine
+from pdfminer.layout import LTCurve, LTImage, LTLine, LTRect, LTTextLine
 
 DOOR_NO = re.compile(r"^\d{3}\.[A-Z]\d?$")
 AREA_SF = re.compile(r"^([\d,]+)\s*SF$")

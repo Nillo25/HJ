@@ -31,7 +31,6 @@ ROUTES = [
     ("mep", r"mep|pipe|duct|heating|ventilat|plumb|electric|hvac|system|installation|parking|equipment|lighting|sprinkler"),
     ("fire", r"fire|rating|fire.?resist"),
 ]
-TOKENS_CAP = 6000          # characters of JSON per block list are cut to keep the sheet small
 
 
 def _p(row):
