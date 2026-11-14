@@ -1,4 +1,3 @@
-ifcopenshell
-pymupdf
-pytesseract
-pillow
+# indexer is stdlib-only for DXF and IFC.
+# PDF parsing (opening_design) adds one pure-Python dependency:
+pdfminer.six

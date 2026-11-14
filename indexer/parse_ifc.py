@@ -1,16 +1,26 @@
 """IFC -> elements. Hand-rolled STEP reader, no ifcopenshell.
 
-The ifcopenshell wheels are built against a newer glibc than this machine
-has, so we read the format ourselves. We only need entity types, storey
-containment and quantity sets, and that is plain ISO-10303-21 text:
+Why not ifcopenshell: it ships a compiled C++ core, so every target needs a
+matching prebuilt wheel. There is none for older glibc on arm64 Linux, which
+is exactly where this indexer ran during development. Reading the format
+ourselves removes the native dependency entirely, so the same code runs on a
+laptop, in CI and in the deployment image without a build toolchain.
+
+What we give up: no geometry kernel, so no booleans, no 3D volumes, no IFC
+schema validation. We only need entity types, storey containment, quantity
+sets and flat footprint contours, and those are plain ISO-10303-21 text:
 
     #123=IFCDOOR('2O2Fr$t4X7Zf8NOew3FNrX',#5,'Door-01',$,...);
+
+If 3D geometry is ever needed, switch this module to ifcopenshell behind the
+same parse() signature; nothing else in the indexer depends on the reader.
 
 Verified against their answers on the preview:
   walls    = IFCWALL + IFCWALLSTANDARDCASE   (99 + 747 = 846)
   fixtures = IFCFLOWTERMINAL                 (119; IFCSANITARYTERMINAL gives 0)
   spaces attach to a storey through IFCRELAGGREGATES, while doors and walls
   use IFCRELCONTAINEDINSPATIALSTRUCTURE. Both links are needed.
+  room area from the FootPrint contour matched 200 of 200 spaces.
 """
 import json
 import re
