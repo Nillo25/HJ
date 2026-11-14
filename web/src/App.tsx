@@ -1,5 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
-import examples from './examples.json';
+import { FormEvent, useEffect, useState } from 'react';
 import { ask, getDrawing, type Answer, type Drawing, type Part } from './lib/api';
 import { AccuracyPanel } from './components/AccuracyPanel';
 import { AnswerCard } from './components/AnswerCard';
@@ -10,8 +9,6 @@ import { PlanViewer } from './components/PlanViewer';
 import { UsageBar } from './components/UsageBar';
 import { Button, Card, CardBody, CardHeader, CardTitle, Input } from './components/ui';
 
-type Ex = { q: string; type: string; drawing: string };
-const EXAMPLES = examples as Record<string, Ex[]>;
 const KEY = 'northline.current';
 
 const remember = (id: string | null) => {
@@ -42,15 +39,6 @@ export default function App() {
     setAsked(null);
     setAnswer(null);          // a new file starts a new conversation
   }
-
-  // examples written for this very file first; otherwise generic ones of the same kind (no model names in them)
-  const chips = useMemo(() => {
-    if (!current) return [];
-    const all = [...(EXAMPLES[current.source] ?? []), ...(current.kind === 'ifc' ? EXAMPLES.ifc_bench ?? [] : [])];
-    const own = all.filter(e => e.drawing === current.name);
-    if (own.length) return own.slice(0, 5);
-    return all.filter(e => !/['"“”„«»]/.test(e.q)).slice(0, 5);
-  }, [current]);
 
   async function run(q: string) {
     if (!current || !q.trim() || loading) return;
@@ -97,16 +85,6 @@ export default function App() {
                   placeholder={current ? 'Ask in any language' : 'Upload a file first'} autoComplete="off" />
                 <Button type="submit" disabled={!current || loading || !question.trim()}>Ask</Button>
               </form>
-              {chips.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {chips.map(c => (
-                    <button key={c.q} onClick={() => run(c.q)} disabled={loading}
-                      className="max-w-full truncate rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-50" title={c.q}>
-                      {c.q.replace(/^On sheet A-801 of the Xcel Sports Complex drawings, /, '')}
-                    </button>
-                  ))}
-                </div>
-              )}
             </CardBody>
           </Card>
 

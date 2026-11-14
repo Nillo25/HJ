@@ -343,7 +343,11 @@ function fit(st: Scene3D, ids: Map<number, number> | null) {
   const c = box.getCenter(new THREE.Vector3());
   // never closer than a third of the building: a single door must still be seen in its surroundings
   const d = Math.max(box.getSize(new THREE.Vector3()).length(), st.bounds.getSize(new THREE.Vector3()).length() * (ids ? 0.45 : 0), 1);
-  st.camera.position.set(c.x + d * (ids ? 0.15 : 0.5), c.y + d * (ids ? 0.95 : 0.45), c.z + d * (ids ? 0.45 : 0.5));
+  // far enough that the whole bounding sphere fits the view, with a margin
+  const dist = (d / 2) / Math.sin(THREE.MathUtils.degToRad(st.camera.fov / 2)) * (ids ? 1.1 : 0.8);
+  const dir = ids ? new THREE.Vector3(0.15, 0.95, 0.45) : new THREE.Vector3(0.55, 0.5, 0.65);
+  dir.normalize();
+  st.camera.position.set(c.x + dir.x * dist, c.y + dir.y * dist, c.z + dir.z * dist);
   st.controls.target.copy(c);
   st.camera.near = Math.max(d / 1000, 0.05);
   st.camera.far = Math.max(d * 40, 2000);

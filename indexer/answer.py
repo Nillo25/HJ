@@ -545,6 +545,14 @@ def ask(con, drawing: str, question: str) -> dict:
         return {"status": "refused", "reason": "question type not recognised",
                 "missing": "template", "route": "cache", "cost_usd": 0.0}
     fn, kw = m
+    # a storey named in the question is a filter, whatever the wording: "how many doors on 1.korrus" is not the whole model
+    if "floor" not in kw and not kw.get("_whole_model") and fn not in ("list_floors", "schedule"):
+        names = [r[0] for r in con.execute(
+            "SELECT name FROM floors WHERE drawing_id=(SELECT id FROM drawings WHERE name=?) AND name IS NOT NULL", (drawing,))]
+        ql = question.lower()
+        named = [n for n in names if n.strip() and re.search(r"(?<![\w.])" + re.escape(n.strip().lower()) + r"(?![\w])", ql)]
+        if named:
+            kw["floor"] = max(named, key=len)
     return execute(con, drawing, fn, kw, plan_floor)
 
 
@@ -591,6 +599,14 @@ def execute(con, drawing: str, fn: str, kw: dict, plan_floor=None) -> dict:
     whole = kw.pop("_whole_model", False)
     if plan_floor and not whole and "floor" not in kw and fn != "list_floors":
         kw["floor"] = plan_floor      # question is about one storey plan
+    # a storey that does not exist is not "zero objects": say which storeys there are
+    if kw.get("floor") and fn != "list_floors":
+        names = [r[0] for r in con.execute(
+            "SELECT name FROM floors WHERE drawing_id=(SELECT id FROM drawings WHERE name=?) AND name IS NOT NULL", (drawing,))]
+        if names and kw["floor"].strip().lower() not in {n.strip().lower() for n in names}:
+            return {"status": "refused", "missing": "element", "route": "cache", "cost_usd": 0.0,
+                    "reason": f"There is no storey called \"{kw['floor']}\". Storeys in this file: {', '.join(names)}.",
+                    "searched": json.dumps(kw, ensure_ascii=False)}
     try:
         value, rows = FNS[fn](con, drawing, **kw)
     except Clarify as c:
