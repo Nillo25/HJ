@@ -120,8 +120,12 @@ def main():
                     import parse_ifc
                     floors, rows = parse_ifc.parse(p, dict_rows)
                 elif ext == ".pdf":
-                    import parse_pdf
-                    rows = parse_pdf.parse(p, dict_rows)
+                    try:
+                        import parse_pdf
+                        rows = parse_pdf.parse(p, dict_rows)
+                    except ModuleNotFoundError:
+                        con.execute("UPDATE files SET role='display' WHERE id=?", (fid,))
+                        continue
                 else:
                     continue      # png — отдельным проходом, см. index_raster.py
             except Exception as e:

@@ -8,7 +8,16 @@
 площадь комнаты 16.78=16.78.
 """
 import json
-from labels import classify_text, norm, subtype_for
+import re as _re
+
+import group as G
+from labels import classify_text, is_outdoor, norm, subtype_for
+
+# «Whg. B», «App. A», «Wohnung C», «Appartamento D» — буква квартиры
+# написана на самом плане. Это надёжнее порядка обхода файла.
+APT_RE = _re.compile(
+    r"^\s*(?:whg|wohnung|app|appartamento|appartement|apt|apartment)\.?\s*"
+    r"([A-Z])\b", _re.I)
 
 
 def read_entities(path: str) -> list[dict]:
@@ -132,9 +141,14 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
             "props": json.dumps({
                 "number": r["number"],
                 "printed_area": r["printed_area"],
-                # пронумерованное внутреннее помещение: есть номер, и это не балкон
-                "numbered_indoor": bool(r["number"]) and
-                                   subtype_for(r["name"] or "", dict_rows) != "balcony",
+                "outdoor": is_outdoor(subtype_for(r["name"] or "", dict_rows)),
+                "labeled": bool(lbl),
+                # «все пронумерованные внутренние помещения, кроме балконов,
+                # лоджий, террас, шахт и пустот»: есть подпись, есть номер,
+                # не наружное. Безымянные обрезки (<1 м², без подписи) — это
+                # и есть шахты и пустоты, они отсекаются условием labeled.
+                "numbered_indoor": bool(lbl) and bool(r["number"]) and
+                                   not is_outdoor(subtype_for(r["name"] or "", dict_rows)),
             }),
         })
 
@@ -147,15 +161,33 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
         # площадь квартиры = сумма комнат внутри контура (НЕ площадь контура:
         # контур включает стены и даёт завышение ~2-3%)
         inner = [r for r in rooms if inside(centroid(r["polygon"]), p)]
+
+        # буква квартиры — с самого плана, если она там написана
+        letter = None
+        for r in inner:
+            m = APT_RE.match(r["name"] or "")
+            if m:
+                letter = m.group(1).upper()
+                break
+        if letter is None:
+            letter = chr(ord("A") + i)
+
+        # в площадь квартиры входят только внутренние помещения с подписью
+        counted = [r for r in inner
+                   if (r["name"] or r["number"])
+                   and not is_outdoor(subtype_for(r["name"] or "", dict_rows))]
+
         out.append({
             "type": "apartment",
-            "label": chr(ord("A") + i),
-            "label_norm": chr(ord("a") + i),
-            "area": round(sum(r["area"] for r in inner), 4),
+            "label": letter,
+            "label_norm": letter.lower(),
+            "area": round(sum(r["area"] for r in counted), 4),
             "polygon": json.dumps([[round(x, 4), round(y, 4)] for x, y in p]),
             "bbox": json.dumps(bbox(p)),
             "props": json.dumps({"outline_area": round(shoelace(p), 4),
-                                 "rooms": len(inner)}),
+                                 "rooms": len(counted),
+                                 "rooms_inside": len(inner),
+                                 "letter_from_plan": letter != chr(ord("A") + i)}),
         })
 
     # --- окна: ПРОВЕРЕНО 100% на 65 файлах — три полилинии на одно окно --
@@ -165,18 +197,43 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
         group = wins[i] + wins[i + 1] + wins[i + 2]
         out.append({"type": "window", "bbox": json.dumps(bbox(group))})
 
-    # --- двери: СЛАБОЕ МЕСТО, 56% на 65 файлах --------------------------
-    # дуга есть только у распашной двери; раздвижные её не имеют,
-    # двустворчатые дают две. Чинить здесь.
-    arcs = [e for e in ents if e["type"] == "ARC" and layer(e) == "DOOR"]
-    for a in arcs:
-        cx = float((a.get("10") or [0])[0])
-        cy = float((a.get("20") or [0])[0])
-        r = float((a.get("40") or [0])[0])
+    # --- двери: полилинии минус дуги -------------------------------------
+    # ПРОВЕРЕНО: 65 из 65 файлов. У каждой двери своя полилиния-полотно,
+    # и каждая дуга раскрытия добавляет ещё одну. Значит дверей ровно
+    # (полилиний - дуг). Наивный счёт дуг давал 56%, склейка по близости
+    # слепляла соседние двери и давала недосчёт.
+    door_polys = [pts(e) for e in ents
+                  if e["type"] == "LWPOLYLINE" and layer(e) == "DOOR"]
+    door_polys = [p for p in door_polys if p]
+    door_arcs = []
+    for e in ents:
+        if e["type"] == "ARC" and layer(e) == "DOOR":
+            cx = float((e.get("10") or [0])[0]); cy = float((e.get("20") or [0])[0])
+            r = float((e.get("40") or [0])[0])
+            door_arcs.append((cx, cy, r))
+
+    # каждой дуге сопоставляем ближайшую свободную полилинию и убираем её:
+    # останется ровно (полилиний - дуг) штук, и у каждой есть геометрия
+    taken = set()
+    for cx, cy, r in door_arcs:
+        best, bestd = None, None
+        for i, p in enumerate(door_polys):
+            if i in taken:
+                continue
+            c = centroid(p)
+            d = (c[0] - cx) ** 2 + (c[1] - cy) ** 2
+            if bestd is None or d < bestd:
+                best, bestd = i, d
+        if best is not None:
+            taken.add(best)
+
+    for i, p in enumerate(door_polys):
+        if i in taken:
+            continue
         out.append({"type": "door", "subtype": "single",
-                    "bbox": json.dumps([cx - r, cy - r, cx + r, cy + r]),
-                    "source_ref": (a.get("5") or [""])[0],
-                    "props": json.dumps({"rule": "arc_on_door_layer", "weak": True})})
+                    "bbox": json.dumps(bbox(p)),
+                    "polygon": json.dumps([[round(x, 4), round(y, 4)] for x, y in p]),
+                    "props": json.dumps({"rule": "polys_minus_arcs"})})
 
     # --- стены ----------------------------------------------------------
     for e in ents:
@@ -186,24 +243,39 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
                 out.append({"type": "wall", "polygon": json.dumps(p),
                             "bbox": json.dumps(bbox(p))})
 
-    # --- сантехника: НЕ РАЗЛИЧЕНА по типам ------------------------------
-    # всё на слое FIXTURE: полилинии и окружности. Различать по форме/размеру.
+    # --- сантехника: склейка + габарит + комната --------------------------
+    fx_prims = []
     for e in ents:
         if layer(e) != "FIXTURE":
             continue
         if e["type"] == "LWPOLYLINE":
             p = pts(e)
             if p:
-                out.append({"type": "fixture", "subtype": None,
-                            "bbox": json.dumps(bbox(p)),
-                            "props": json.dumps({"shape": "poly",
-                                                 "area": round(shoelace(p), 4)})})
+                fx_prims.append({"bbox": bbox(p), "shape": "poly"})
         elif e["type"] == "CIRCLE":
-            cx = float((e.get("10") or [0])[0])
-            cy = float((e.get("20") or [0])[0])
+            cx = float((e.get("10") or [0])[0]); cy = float((e.get("20") or [0])[0])
             r = float((e.get("40") or [0])[0])
-            out.append({"type": "fixture", "subtype": None,
-                        "bbox": json.dumps([cx - r, cy - r, cx + r, cy + r]),
-                        "props": json.dumps({"shape": "circle", "r": round(r, 4)})})
+            fx_prims.append({"bbox": [cx - r, cy - r, cx + r, cy + r], "shape": "circle"})
+        elif e["type"] == "ARC":
+            cx = float((e.get("10") or [0])[0]); cy = float((e.get("20") or [0])[0])
+            r = float((e.get("40") or [0])[0])
+            fx_prims.append({"bbox": [cx - r, cy - r, cx + r, cy + r], "shape": "arc"})
+
+    for g in G.cluster(fx_prims, gap=0.03):
+        bb = g["bbox"]
+        c = ((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2)
+        room_sub = None
+        for r in rooms:
+            if inside(c, r["polygon"]):
+                room_sub = subtype_for(r["name"] or "", dict_rows)
+                break
+        sub, conf = G.classify_fixture(g, room_sub)
+        w, h, long, short, aspect = G.dims(bb)
+        out.append({"type": "fixture", "subtype": sub, "confidence": conf,
+                    "bbox": json.dumps(bb),
+                    "props": json.dumps({"room": room_sub, "prims": g["n"],
+                                         "long": round(long, 3),
+                                         "short": round(short, 3),
+                                         "aspect": round(aspect, 2)})})
 
     return out

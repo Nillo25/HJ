@@ -24,6 +24,9 @@ SEED = {
     "korridor": "corridor", "flur": "corridor", "gang": "corridor",
     "wohnen": "living", "wohnen/essen": "living", "wohnzimmer": "living",
     "balkon": "balcony", "loggia": "balcony", "terrasse": "balcony",
+    "balcone": "balcony", "terrazza": "balcony", "veranda": "balcony",
+    "balcon": "balcony", "terrasson": "balcony", "sitzplatz": "balcony",
+    "gartensitzplatz": "balcony", "patio": "balcony", "dachterrasse": "balcony",
     "reduit": "storage", "abstellraum": "storage", "keller": "storage",
     "treppenhaus": "corridor",
     "technik": "technical", "technikraum": "technical",
@@ -96,3 +99,13 @@ def seed_dict(con):
         "INSERT OR IGNORE INTO label_dict(label_norm, subtype, source) VALUES (?,?,'manual')",
         [(k, v) for k, v in SEED.items()],
     )
+
+
+# Наружные помещения: не входят ни в площадь квартиры, ни в «пронумерованные
+# внутренние». Проверено на swiss_dwellings: расхождение по площадям
+# объяснялось ровно балконами плюс безымянными обрезками.
+OUTDOOR = {"balcony"}
+
+
+def is_outdoor(subtype: str | None) -> bool:
+    return subtype in OUTDOOR

@@ -35,19 +35,55 @@ def _rows(con, drawing, **w):
 def count_objects(con, drawing, type, subtype=None, floor=None, label_literal=None):
     r = _rows(con, drawing, type=type, subtype=subtype, floor=floor,
               label_literal=label_literal)
+    if not r and subtype:
+        # есть ли вообще объекты этого типа с проставленным подтипом?
+        # если ни у одного подтип не определён — честный отказ, а не ноль.
+        any_typed = [x for x in _rows(con, drawing, type=type) if x["subtype"]]
+        if not any_typed:
+            return None, []
     return len(r), r
 
 
 def room_area(con, drawing, label, floor=None):
-    r = [x for x in _rows(con, drawing, type="room", floor=floor)
-         if x["label"] and label.lower() in x["label"].lower()]
+    lab = label.strip().lower()
+    all_rooms = _rows(con, drawing, type="room", floor=floor)
+    r = [x for x in all_rooms if x["label"] and lab in x["label"].lower()]
+    if not r:   # спрашивают по номеру: «room 1.02 ('Stanza')»
+        r = [x for x in all_rooms
+             if (json.loads(x["props"] or "{}").get("number") or "").lower() == lab]
     if not r:
         return None, []
     return sum(x["area"] or 0 for x in r), r
 
 
-def sum_quantity(con, drawing, type, field, subtype=None, floor=None, only_numbered=False):
-    r = _rows(con, drawing, type=type, subtype=subtype, floor=floor)
+def apartment_area(con, drawing, label, floor=None):
+    """Площадь квартиры по букве с плана («Whg. B» -> B)."""
+    r = [x for x in _rows(con, drawing, type="apartment")
+         if (x["label"] or "").upper() == label.upper()]
+    if not r:
+        return None, []
+    return sum(x["area"] or 0 for x in r), r
+
+
+def count_labelled(con, drawing, literal, floor=None):
+    """«Сколько помещений с подписью 'Cucina'» — считаем сами подписи на
+    слое ROOM_TEXT, а не комнаты: подпись может не попасть внутрь контура,
+    и тогда комната её теряет, а вопрос всё равно про подпись."""
+    did = con.execute("SELECT id FROM drawings WHERE name=?", (drawing,)).fetchone()
+    if not did:
+        return None, []
+    con.row_factory = __import__("sqlite3").Row
+    rows = con.execute(
+        """SELECT t.* FROM text_spans t JOIN files f ON f.id = t.file_id
+            WHERE f.drawing_id = ? AND LOWER(TRIM(t.text)) = LOWER(?)""",
+        (did[0], literal)).fetchall()
+    return len(rows), rows
+
+
+def sum_quantity(con, drawing, type, field, subtype=None, floor=None,
+                 only_numbered=False, label_literal=None):
+    r = _rows(con, drawing, type=type, subtype=subtype, floor=floor,
+              label_literal=label_literal)
     if only_numbered:
         r = [x for x in r
              if (json.loads(x["props"] or "{}")).get("numbered_indoor")]
@@ -95,16 +131,18 @@ T = [
     (r"how many balconies|kuinka monta parveketta",
      "count_objects", {"type": "room", "subtype": "balcony"}),
     # --- комнаты по буквальной подписи: "rooms labelled 'Cucina'" ---
-    (r"how many rooms labelled ['\"](?P<lit>[^'\"]+)['\"]",
-     "count_objects", {"type": "room"}),
+    (r"how many rooms labelled '(?P<lit>.+)' are there", "count_labelled", {}),
+    (r"how many rooms labelled \"(?P<lit>.+)\" are there", "count_labelled", {}),
     # --- площади ---
     (r"total net floor area .* all numbered indoor rooms",
      "sum_quantity", {"type": "room", "field": "area", "only_numbered": True}),
     (r"net floor area of apartment (?P<apt>[A-Z])\b",
-     "room_area", {"_apt": True}),
+     "apartment_area", {"_apt": True}),
     (r"net floor area of room (?P<room>[\d.\-]+)",
      "room_area", {"_room": True}),
-    (r"total net area .* rooms labelled ['\"](?P<lit>[^'\"]+)['\"]",
+    (r"total net area .* rooms labelled '(?P<lit>.+)' on this floor",
+     "sum_quantity", {"type": "room", "field": "area"}),
+    (r"total net area .* rooms labelled \"(?P<lit>.+)\" on this floor",
      "sum_quantity", {"type": "room", "field": "area"}),
     # --- ifc_models: по этажу ---
     (r"how many (?P<kind>doors|windows|walls|columns|beams|stairs|rooms \(spaces\))"
@@ -130,7 +168,7 @@ def match_template(question: str):
         kw = {k: v for k, v in base.items() if not k.startswith("_")}
         g = m.groupdict()
         if g.get("lit"):
-            kw["label_literal"] = g["lit"]
+            kw["literal" if fn == "count_labelled" else "label_literal"] = g["lit"]
         if base.get("_ifc_floor"):
             kw["type"] = IFC_KIND[g["kind"]]
             kw["floor"] = g["floor"]
@@ -149,12 +187,18 @@ def match_template(question: str):
 # ------------------------------------------------------------------ фасад
 
 FNS = {"count_objects": count_objects, "room_area": room_area,
+       "apartment_area": apartment_area, "count_labelled": count_labelled,
        "sum_quantity": sum_quantity, "list_floors": list_floors}
 
 
 def evidence_of(rows, limit=50):
     out = []
     for r in rows[:limit]:
+        k = set(r.keys())
+        if "source_ref" not in k:          # text_spans: подпись на листе
+            out.append({"kind": "page", "id": r["id"], "label": r["text"],
+                        "bbox": r["bbox"]})
+            continue
         if r["source_ref"] and len(str(r["source_ref"])) == 22:
             out.append({"kind": "ifc", "ref": r["source_ref"], "label": r["label"]})
         elif r["polygon"]:
@@ -181,7 +225,8 @@ def ask(con, drawing: str, question: str) -> dict:
         return {"status": "refused", "reason": "в данных не найдено",
                 "missing": "element", "searched": json.dumps(kw, ensure_ascii=False),
                 "route": "cache", "cost_usd": 0.0}
-    unit = "m2" if fn in ("room_area",) or kw.get("field") == "area" else "count"
+    unit = ("m2" if fn in ("room_area", "apartment_area")
+            or kw.get("field") == "area" else "count")
     conf = min([r["confidence"] for r in rows], default=1.0) if rows else 1.0
     return {"status": "answered" if conf >= 1.0 else "estimated",
             "answer": round(value, 2) if unit == "m2" else value,
