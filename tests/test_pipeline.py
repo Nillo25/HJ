@@ -325,3 +325,23 @@ def test_fixture_second_opinion_lowers_confidence():
     assert a.answer == 1 and a.confidence == "medium" and "второе мнение" in a.note
     sc.meta["fixture_check"]["counts"]["toilet"] = 1
     assert query.count(sc, "toilet").confidence == "high"
+
+
+def test_drop_detections_outside_drawing():
+    from fp.infer import drop_outside_drawing
+    from fp.scene import Scene
+    sq = lambda x, y, s: [(x, y), (x + s, y), (x + s, y + s), (x, y + s)]
+    sc = Scene.build("x", 1000, 600, [("room_other", sq(100, 100, 200), 0.6), ("room_other", sq(900, 50, 80), 0.6),
+                                       ("door", sq(150, 150, 20), 0.6), ("door", sq(250, 150, 20), 0.6),
+                                       ("window", sq(350, 150, 20), 0.6)])
+    assert drop_outside_drawing(sc, [0, 0, 800, 600]) == 1          # 1 из 5 — графа штампа справа, убираем
+    assert [r.id for r in sc.rooms] == ["other_1"] and len(sc.objects) == 3
+
+
+def test_drop_outside_drawing_skips_partial_frame():
+    from fp.infer import drop_outside_drawing
+    from fp.scene import Scene
+    sq = lambda x, y, s: [(x, y), (x + s, y), (x + s, y + s), (x, y + s)]
+    sc = Scene.build("x", 1000, 600, [("room_other", sq(100, 100, 100), 0.6), ("room_other", sq(600, 100, 100), 0.6),
+                                       ("room_other", sq(800, 100, 100), 0.6)])
+    assert drop_outside_drawing(sc, [0, 0, 400, 600]) == 0 and len(sc.rooms) == 3   # рамка вокруг одного этажа

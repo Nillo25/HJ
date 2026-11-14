@@ -160,6 +160,33 @@ def run(image: Path, out: Path, model: str | None = None, gt_svg: Path | None = 
     return sc
 
 
+def drop_outside_drawing(sc: Scene, bbox, pad: float = 0.02, max_frac: float | None = 0.3) -> int:
+    """Убрать детекции вне основного чертежа: штамп, легенда, таблицы, ключевой план. Модель обучена на квартирах
+    и на чертёжных листах принимает графы штампа за комнаты. bbox — рамка чертежа от VLM (fp.sheet)."""
+    if not bbox or len(bbox) != 4:
+        return 0
+    x0, y0, x1, y1 = bbox
+    px, py = pad * sc.width, pad * sc.height
+    x0, y0, x1, y1 = x0 - px, y0 - py, x1 + px, y1 + py
+
+    def inside(e):
+        c = e.shape().centroid
+        return x0 <= c.x <= x1 and y0 <= c.y <= y1
+    before = len(sc.objects) + len(sc.rooms)
+    keep_rooms = [r for r in sc.rooms if inside(r)]
+    keep_objs = [o for o in sc.objects if o.source == "legend" or inside(o)]
+    removed = before - len(keep_objs) - len(keep_rooms)
+    # рамка от VLM бывает неполной (на листе два этажа, а рамка вокруг одного) — тогда не трогаем
+    if max_frac is not None and before and removed > max_frac * before:
+        sc.meta["outside_drawing_skipped"] = f"рамка чертежа убрала бы {removed} из {before} — не применена"
+        return 0
+    sc.rooms, sc.objects = keep_rooms, keep_objs
+    if removed:
+        sc.meta["outside_drawing_removed"] = removed
+        sc.assign_rooms()
+    return removed
+
+
 def analyze_sheet(img: np.ndarray, sc: Scene) -> Scene:
     """Один вызов VLM на лист: штамп, легенда, таблицы, примечания, шкала, подписи площадей.
     Затем без VLM: масштаб (fp.scale) и зоны по цветам легенды (fp.sheet.find_zones) — в сцену."""
@@ -175,6 +202,11 @@ def analyze_sheet(img: np.ndarray, sc: Scene) -> Scene:
         sc.meta["scale"] = {"px_per_m": None, "source": None, "detail": f"VLM не ответила: {e}"}
         return sc
     sc.meta["sheet"] = sheet
+    tb = sheet.get("title_block") or {}
+    if tb.get("sheet_number"):  # чертёжный лист со штампом и номером — рамке чертежа доверяем
+        drop_outside_drawing(sc, sheet.get("drawing_bbox"), max_frac=None)
+    elif sheet.get("legend") or sheet.get("tables"):  # есть легенда/таблицы, но не уверены, что это целый лист
+        drop_outside_drawing(sc, sheet.get("drawing_bbox"))
     est = estimate(img, sc, read=sheet, cost=cost)
     # шкалу не нашли, а масштаб есть только из текста — один узкий вызов: поиск шкалы по четвертям листа
     if not sheet.get("scale_bar") and est.get("source") in (None, "scale_text"):
@@ -190,6 +222,14 @@ def analyze_sheet(img: np.ndarray, sc: Scene) -> Scene:
     sc.meta["sheet_cost_usd"] = round(cost, 6)
     sc.meta["scale"] = est
     sc.meta["px_per_m"] = est.get("px_per_m")
+    # «комнаты» меньше 0.6 м² (кроме санузлов) — шум модели (чертёжные листы, штриховка); убираем, когда масштаб известен
+    if est.get("px_per_m"):
+        small = [r.id for r in sc.rooms
+                 if r.cls != "room_bath" and r.shape().area / est["px_per_m"] ** 2 < 0.6]
+        if small:
+            sc.rooms = [r for r in sc.rooms if r.id not in small]
+            sc.meta["tiny_rooms_removed"] = small
+            sc.assign_rooms()
     # зоны легенды: убираем старые, ищем цвета на плане (кроме самих образцов легенды)
     sc.objects = [o for o in sc.objects if o.cls != "zone"]
     legend = sheet.get("legend", [])
