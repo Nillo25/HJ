@@ -11,6 +11,7 @@ import json
 import re as _re
 
 import group as G
+from footprint import gross_area
 from labels import classify_text, is_outdoor, norm, subtype_for
 
 MIN_APARTMENT_M2 = 8.0
@@ -153,6 +154,31 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
                                    not is_outdoor(subtype_for(r["name"] or "", dict_rows)),
             }),
         })
+
+    # --- gross footprint: inside the outer walls, walls included ------------
+    polys = [r["polygon"] for r in rooms if not is_outdoor(subtype_for(r["name"] or "", dict_rows))]
+    for e in ents:
+        lay = layer(e)
+        if e["type"] == "LWPOLYLINE" and lay in ("WALL", "WINDOW", "DOOR"):
+            polys.append(pts(e))
+        elif e["type"] == "HATCH" and lay == "WALL":
+            counts = [int(float(v)) for v in e.get("93", [])]
+            hx = [float(v) for v in e.get("10", [])][1:]        # the first pair is the elevation point
+            hy = [float(v) for v in e.get("20", [])][1:]
+            i = 0
+            for n in counts:
+                if n < 3 or i + n > min(len(hx), len(hy)):
+                    break
+                polys.append(list(zip(hx[i:i + n], hy[i:i + n])))
+                i += n
+    try:
+        gross, gbb = gross_area(polys)
+    except Exception:                                            # never let the optional extra break parsing
+        gross, gbb = None, None
+    if gross:
+        out.append({"type": "outline", "label": "gross footprint", "area": round(gross, 2),
+                    "bbox": json.dumps([round(v, 3) for v in gbb]),
+                    "props": json.dumps({"method": "raster 0.15 m, gaps up to 0.3 m closed"})})
 
     # --- apartments (UNIT_OUTLINE) ---------------------------------------
     units = [pts(e) for e in ents

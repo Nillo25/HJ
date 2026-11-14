@@ -436,6 +436,16 @@ def floor_area_parts(con, drawing, floor=None):
                           "area": round(area if area is not None else sum(r["area"] or 0 for r in rows), 2),
                           "rows": rows})
 
+    # the whole floor: gross (inside the outer walls) and net (the rooms), and what lies between them
+    outline = _rows(con, drawing, type="outline")
+    if outline and indoor:
+        net = sum(r["area"] or 0 for r in indoor)
+        gross = outline[0]["area"] or 0
+        walls = [w for w in _rows(con, drawing, type="wall", floor=floor) if w["polygon"]]
+        add("Whole floor", "Gross: inside the outer walls, walls included", indoor + walls, gross)
+        add("Whole floor", "Net: the numbered indoor rooms (the total above)", indoor, net)
+        add("Whole floor", "Walls, shafts and unlabelled voids (gross minus net)", walls, max(gross - net, 0))
+
     # apartments (DXF plans): the flat is the sum of its rooms; what lies in no flat is common area
     apts = [a for a in _rows(con, drawing, type="apartment", floor=floor) if a["polygon"]]
     in_flat = set()
@@ -629,6 +639,6 @@ def execute(con, drawing: str, fn: str, kw: dict, plan_floor=None) -> dict:
     if fn == "floor_area":
         res["breakdown"] = [{"group": p["group"], "label": p["label"], "count": p["count"], "area": p["area"],
                              "evidence": evidence_of(p["rows"], con)} for p in floor_area_parts(con, drawing, kw.get("floor"))]
-        res["note"] = ("Net area of the numbered indoor rooms. Balconies, loggias, shafts and unlabelled slivers are not in it; "
-                       "pick a part to see it on the plan.")
+        res["note"] = ("The headline is the net area of the numbered indoor rooms. Gross (inside the outer walls) is the first row; "
+                       "balconies, loggias, shafts and unlabelled slivers are not in the net. Pick a part to see it on the plan.")
     return res
