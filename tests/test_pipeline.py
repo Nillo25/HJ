@@ -574,3 +574,39 @@ def test_arc_doors_join_model_doors():
     assert add_arc_doors(_door_sheet(), sc2)["added"] == 1     # нет ни стен, ни помещений — фильтр не применяется
     a = count(sc, "door")
     assert a.answer == 2 and a.confidence == "medium" and "дугам" in a.note
+
+
+def _window_sheet():
+    """Лист 600×300, 50 px/м: толстая стена с простенками, между ними три тонкие линии остекления (окна 1 м);
+    внутри — стол из двух параллельных линий, не упирающийся в стену."""
+    import cv2
+    import numpy as np
+    img = np.full((300, 600, 3), 255, np.uint8)
+    for x0, x1 in ((40, 100), (150, 200), (250, 300), (350, 560)):    # стена и простенки, толщина 12 px
+        cv2.rectangle(img, (x0, 100), (x1, 111), (0, 0, 0), -1)
+    for x0, x1 in ((100, 150), (200, 250), (300, 350)):                 # остекление 3 линии
+        for y in (101, 105, 110):
+            cv2.line(img, (x0, y), (x1, y), (215, 215, 215), 1)
+    cv2.line(img, (200, 200), (300, 200), (150, 150, 150), 1)           # стол — не окно
+    cv2.line(img, (200, 206), (300, 206), (150, 150, 150), 1)
+    return img
+
+
+def test_glazing_windows_found_between_piers_not_furniture():
+    import cv2
+    from fp.windows_cv import find_glazing
+    bands = find_glazing(cv2.cvtColor(_window_sheet(), cv2.COLOR_BGR2GRAY), 50.0)
+    assert len(bands) == 3 and all(abs(b["length_m"] - 1.0) <= 0.15 for b in bands)
+    assert all(b["bbox"][1] < 120 for b in bands)
+
+
+def test_glazing_windows_join_model_windows():
+    from fp.infer import add_glazing_windows
+    from fp.query import count
+    from fp.scene import Scene
+    sc = Scene.build("x", 600, 300, [("window", [(100, 98), (150, 98), (150, 113), (100, 113)], 0.5)],
+                     meta={"px_per_m": 50.0})
+    info = add_glazing_windows(_window_sheet(), sc)
+    assert info["added"] == 2 and info["confirmed"] == ["win1"]
+    a = count(sc, "window")
+    assert a.answer == 3 and a.confidence == "medium" and "остеклен" in a.note

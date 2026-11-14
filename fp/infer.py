@@ -37,7 +37,7 @@ def simplify(poly: np.ndarray, cls: str) -> list:
 ARC_MIN_PPM = 33.0  # двери по дугам — только если дверь 0.6 м на листе не меньше 20 px
 
 # менять при правках разбора, влияющих на сцену: повторная загрузка того же файла тогда разберёт его заново
-PIPELINE_VERSION = "2026-11-14.door-arcs"
+PIPELINE_VERSION = "2026-11-14.glazing"
 
 THRESHOLDS = json.loads((Path(__file__).parent / "thresholds.json").read_text())
 
@@ -255,8 +255,13 @@ def analyze_sheet(img: np.ndarray, sc: Scene) -> Scene:
     # и на таких листах видит их слабо. На квартирных планах дуги вредят (53.7% -> 36.6% на train+val eval_set),
     # поэтому там не включаются. Мелкий масштаб (дверь < 20 px, школа 1:200) — тоже нет: под четверть окружности
     # такого размера подходят стулья и буквы
-    if (est.get("px_per_m") or 0) >= ARC_MIN_PPM and re.match(r"^[A-Z]{1,3}[-.]?\d", str(tb.get("sheet_number") or "")):
+    drawing_sheet = bool(re.match(r"^[A-Z]{1,3}[-.]?\d", str(tb.get("sheet_number") or "")))
+    if (est.get("px_per_m") or 0) >= ARC_MIN_PPM and drawing_sheet:
         add_arc_doors(img, sc)
+    # окна по полосам остекления в стенах — тоже только на чертёжных листах: на квартирах CubiCasa модель
+    # по окнам лучше, а полосы добавляют лишние (train+val eval_set: 41.5% -> 24.5%)
+    if est.get("px_per_m") and drawing_sheet:
+        add_glazing_windows(img, sc)
     # помещения: площади и плинтусы (подписи + заливка по стенам + контуры модели)
     from .spaces import build as build_spaces
     build_spaces(img, sc)
@@ -391,4 +396,44 @@ def add_arc_doors(img: np.ndarray, sc: Scene) -> dict:
     info = {"done": True, "arcs": len(arcs), "near_walls": len(kept), "confirmed": sorted(confirmed),
             "added": len(new), "model_doors": n0}
     sc.meta["door_arcs"] = info
+    return info
+
+
+def add_glazing_windows(img: np.ndarray, sc: Scene) -> dict:
+    """Второй способ найти окна — полосы остекления в стенах (fp.windows_cv.find_glazing). Окно модели,
+    совпавшее с полосой, — подтверждено; полоса без окна модели — новое окно (source="glazing")."""
+    from .rooms_cv import wall_mask
+    from .scene import Element
+    from .windows_cv import find_glazing
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
+    ppm = sc.meta.get("px_per_m")
+    if not ppm:
+        ppm = wall_mask(gray)[1] / 0.25          # без масштаба: толстая стена ≈ 25 см
+    bands = find_glazing(gray, ppm)
+    region = (sc.meta.get("sheet") or {}).get("drawing_bbox")
+    if region:
+        bands = [b for b in bands if region[0] <= (b["bbox"][0] + b["bbox"][2]) / 2 <= region[2]
+                 and region[1] <= (b["bbox"][1] + b["bbox"][3]) / 2 <= region[3]]
+    sc.objects = [o for o in sc.objects if not (o.cls == "window" and o.source == "glazing")]
+    wins = [o for o in sc.objects if o.cls == "window"]
+    pad = 0.2 * ppm
+    confirmed, n_new = set(), 0
+    for b in bands:
+        x0, y0, x1, y1 = b["bbox"]
+        hit = next((o.id for o in wins
+                    if min(p[0] for p in o.polygon) - pad <= x1 and x0 <= max(p[0] for p in o.polygon) + pad
+                    and min(p[1] for p in o.polygon) - pad <= y1 and y0 <= max(p[1] for p in o.polygon) + pad), None)
+        if hit:
+            confirmed.add(hit)
+            continue
+        n_new += 1
+        sc.objects.append(Element(f"wg{n_new}", "window", [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], 0.6,
+                                  source="glazing"))
+    for o in wins:
+        if o.id in confirmed:
+            o.conf = max(o.conf, 0.9)
+    sc.assign_rooms()
+    info = {"done": True, "bands": len(bands), "confirmed": sorted(confirmed), "added": n_new,
+            "model_windows": len(wins)}
+    sc.meta["window_glazing"] = info
     return info

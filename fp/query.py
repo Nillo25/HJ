@@ -182,6 +182,13 @@ def _count_yolo(scene: Scene, cls: str, room: str | None = None) -> Answer:
                  f"подтверждено дугой {n_conf})")
         a.confidence = "medium"
         a.note = extra
+    wg = scene.meta.get("window_glazing") or {}
+    if cls == "window" and wg.get("done") and isinstance(a.answer, int):
+        n_gl = sum(1 for e in a.evidence if e.get("kind") == "glazing")
+        n_conf = len(set(wg.get("confirmed") or []) & set(a.ids))
+        a.confidence = "medium"
+        a.note = (f"окна найдены двумя способами: моделью и по полосам остекления в стенах "
+                  f"(по полосам добавлено {n_gl}, подтверждено {n_conf})")
     return a
 
 
