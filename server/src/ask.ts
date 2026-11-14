@@ -7,10 +7,32 @@
 import { z } from 'zod';
 import { generateObject } from 'ai';
 import { google } from '@ai-sdk/google';
+import { openai } from '@ai-sdk/openai';
+import { execFile } from 'node:child_process';
+import path from 'node:path';
+import { recordUsage, type Usage } from './usage.js';
 import { cacheGet, cachePut, floorsOf, queryElements, type Element } from './db.js';
 import { FNS, resolveDrawing } from './tools.js';
 
-const MODEL = google('gemini-2.5-flash');
+/** Question parsing model. LLM_PROVIDER=openai|google, LLM_MODEL overrides the default. */
+const PROVIDER = process.env.LLM_PROVIDER ?? (process.env.OPENAI_API_KEY ? 'openai' : 'google');
+const MODEL_ID = process.env.LLM_MODEL ?? (PROVIDER === 'openai' ? 'gpt-4.1-mini' : 'gemini-2.5-flash');
+const MODEL = PROVIDER === 'openai' ? openai(MODEL_ID) : google(MODEL_ID);
+const HAS_KEY = PROVIDER === 'openai'
+  ? !!process.env.OPENAI_API_KEY : !!process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+
+/** Known question templates live in Python; a hit costs nothing. */
+function pyTemplate(drawing: string, question: string): Promise<any | null> {
+  return new Promise((resolve) => {
+    execFile('python3', [
+      path.resolve('../indexer/ask_cli.py'),
+      '--db', process.env.DB_PATH ?? '../app.db', '--drawing', drawing, '--question', question,
+    ], { timeout: 20000, maxBuffer: 8e6 }, (err, out) => {
+      if (err) return resolve(null);
+      try { resolve(JSON.parse(out)); } catch { resolve(null); }
+    });
+  });
+}
 
 /* ------------------------------------------------ схема разбора вопроса */
 
@@ -94,16 +116,26 @@ export async function ask(drawingName: string, question: string) {
              route: 'cache', cost_usd: 0, latency_ms: Date.now() - t0 };
   }
 
+  const tpl = await pyTemplate(d.row.name, question);
+  if (tpl && !(tpl.status === 'refused' && tpl.missing === 'template')) {
+    return { ...tpl, route: 'template', usage: [], latency_ms: Date.now() - t0 };
+  }
+
   const { template, slots } = templatize(question);
   let parsed: any = null;
   let route: 'cache' | 'llm' = 'cache';
   let cost = 0;
+  const used: Usage[] = [];
 
   const hit = cacheGet.get(template) as { fn: string; args: string } | undefined;
   if (hit) {
     parsed = { fn: hit.fn, ...fill(JSON.parse(hit.args), slots) };
   } else {
     route = 'llm';
+    if (!HAS_KEY) {
+      return { status: 'refused', reason: 'question is not a known template and no model key is configured',
+               missing: 'template', route: 'none', usage: [], cost_usd: 0, latency_ms: Date.now() - t0 };
+    }
     // контекст чертежа: без него «на третьем этаже» не превратится в «3.korrus»
     const floors = (floorsOf.all(d.id) as any[]).map((f) => f.name).filter(Boolean);
     const labels = [...new Set(
@@ -128,6 +160,8 @@ export async function ask(drawingName: string, question: string) {
     });
     parsed = object;
     cost = estimateCost(usage);
+    used.push(recordUsage(`${PROVIDER}:${MODEL_ID}`, usage?.promptTokens ?? 0,
+                          usage?.completionTokens ?? 0, cost));
 
     if (object.fn !== 'unsupported') {
       const { fn, ...args } = object as any;
@@ -137,7 +171,7 @@ export async function ask(drawingName: string, question: string) {
 
   if (parsed.fn === 'unsupported') {
     return { status: 'refused', reason: parsed.reason ?? 'тип вопроса не поддержан',
-             missing: 'template', route, cost_usd: cost,
+             missing: 'template', route, cost_usd: cost, usage: used,
              latency_ms: Date.now() - t0 };
   }
 
@@ -145,7 +179,7 @@ export async function ask(drawingName: string, question: string) {
   const impl = (FNS as any)[fn];
   if (!impl) {
     return { status: 'refused', reason: `неизвестная функция ${fn}`,
-             missing: 'template', route, cost_usd: cost,
+             missing: 'template', route, cost_usd: cost, usage: used,
              latency_ms: Date.now() - t0 };
   }
 
@@ -153,7 +187,7 @@ export async function ask(drawingName: string, question: string) {
 
   if (value === null) {
     return { status: 'refused', reason: 'в данных не найдено', missing: 'element',
-             searched: JSON.stringify(args), route, cost_usd: cost,
+             searched: JSON.stringify(args), route, cost_usd: cost, usage: used,
              latency_ms: Date.now() - t0 };
   }
 
@@ -170,6 +204,7 @@ export async function ask(drawingName: string, question: string) {
     route,
     evidence: evidenceOf(rows, d.id),
     cost_usd: cost,
+    usage: used,
     latency_ms: Date.now() - t0,
     fn,
     args,
@@ -180,5 +215,7 @@ export async function ask(drawingName: string, question: string) {
 function estimateCost(usage: any): number {
   const inTok = usage?.promptTokens ?? 0;
   const outTok = usage?.completionTokens ?? 0;
-  return (inTok * 0.3 + outTok * 2.5) / 1e6;
+  const pin = Number(process.env.LLM_PRICE_IN ?? 0.3);    // USD per 1M tokens
+  const pout = Number(process.env.LLM_PRICE_OUT ?? 2.5);
+  return (inTok * pin + outTok * pout) / 1e6;
 }

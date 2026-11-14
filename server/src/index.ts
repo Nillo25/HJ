@@ -14,6 +14,7 @@ import {
   type Element,
 } from './db.js';
 import { ask } from './ask.js';
+import { countQuestion, usageSnapshot } from './usage.js';
 
 const app = new Hono();
 app.use('/api/*', cors());
@@ -140,7 +141,9 @@ app.post('/api/ask', async (c) => {
   if (!name) return c.json({ error: 'drawing required' }, 400);
 
   try {
-    return c.json(await ask(name, body.question));
+    const res: any = await ask(name, body.question);
+    countQuestion(res.route === 'template' || res.route === 'cache');
+    return c.json(res);
   } catch (e: any) {
     return c.json({ status: 'refused', reason: `${e?.name}: ${e?.message}`,
                     missing: 'internal', route: 'llm', cost_usd: 0 }, 200);
@@ -149,11 +152,13 @@ app.post('/api/ask', async (c) => {
 
 /* -------------------------------------------------------- панель точности */
 
+app.get('/api/usage', (c) => c.json(usageSnapshot()));
+
 app.get('/api/eval/latest', (c) => c.json({ rows: latestEval.all() }));
 
 /* ------------------------------------------------- загрузка и индексация */
 
-type Job = { id: string; stage: string; done: number; total: number; log: string[]; finished: boolean };
+type Job = { id: string; stage: string; done: number; total: number; log: string[]; finished: boolean; drawings: any[] };
 const jobs = new Map<string, Job>();
 
 app.post('/api/upload', async (c) => {
@@ -162,21 +167,37 @@ app.post('/api/upload', async (c) => {
   if (!files.length) return c.json({ error: 'no files' }, 400);
 
   const id = randomUUID().slice(0, 8);
-  const dir = path.resolve('uploads', id);
+  // the indexer expects <root>/data/<source>/<files>; each upload is its own source
+  const root = path.resolve('uploads', id);
+  const dir = path.join(root, 'data', id);
   mkdirSync(dir, { recursive: true });
 
+  const stems: string[] = [];
   for (const f of files as File[]) {
-    writeFileSync(path.join(dir, f.name), Buffer.from(await f.arrayBuffer()));
+    const name = path.basename(f.name);                 // no path tricks from the client
+    writeFileSync(path.join(dir, name), Buffer.from(await f.arrayBuffer()));
+    stems.push(name.replace(/\.[^.]+$/, ''));
   }
 
-  const job: Job = { id, stage: 'indexing', done: 0, total: files.length, log: [], finished: false };
+  const job: Job = { id, stage: 'indexing', done: 0, total: files.length, log: [], finished: false, drawings: [] };
   jobs.set(id, job);
 
-  // индексатор — отдельный процесс на Python, один раз на загрузку
-  const p = spawn('python3', [path.resolve('../indexer/index.py'), dir, '--db', process.env.DB_PATH ?? '../app.db']);
+  // the indexer is a separate Python process, once per upload
+  const p = spawn('python3', [path.resolve('../indexer/index.py'), root, '--db', process.env.DB_PATH ?? '../app.db']);
   p.stdout.on('data', (d) => { job.log.push(String(d)); });
   p.stderr.on('data', (d) => { job.log.push(String(d)); });
-  p.on('close', (code) => { job.finished = true; job.stage = code === 0 ? 'ready' : 'failed'; });
+  p.on('close', (code) => {
+    job.finished = true;
+    job.stage = code === 0 ? 'ready' : 'failed';
+    if (code === 0) {
+      const names = [...new Set(stems)];
+      job.drawings = db.prepare(
+        `SELECT d.id, d.name, d.source, d.capabilities,
+                (SELECT COUNT(*) FROM elements e WHERE e.drawing_id = d.id) AS elements
+           FROM drawings d WHERE d.name IN (${names.map(() => '?').join(',')})`,
+      ).all(...names).map((r: any) => ({ ...r, capabilities: r.capabilities ? JSON.parse(r.capabilities) : null }));
+    }
+  });
 
   return c.json({ jobId: id });
 });

@@ -193,9 +193,18 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
     # --- windows: VERIFIED 100% on 65 files, three polylines per window --
     wins = [pts(e) for e in ents
             if e["type"] == "LWPOLYLINE" and layer(e) == "WINDOW"]
-    for i in range(0, len(wins) - 2, 3):
-        group = wins[i] + wins[i + 1] + wins[i + 2]
-        out.append({"type": "window", "bbox": json.dumps(bbox(group))})
+    # The count is n // 3 (verified). Geometry comes from proximity: polylines
+    # of one window touch, so a cluster of 3k polylines is k windows. Whatever
+    # does not fit is still counted, but carries no geometry rather than a
+    # wrong box that would highlight half the plan.
+    n_win = len(wins) // 3
+    made = 0
+    for c in G.cluster([{"bbox": bbox(w)} for w in wins], gap=0.05):
+        if c["n"] == 3:
+            out.append({"type": "window", "bbox": json.dumps(c["bbox"])})
+            made += 1
+    for _ in range(n_win - made):
+        out.append({"type": "window"})
 
     # --- doors: polylines minus arcs -------------------------------------
     # VERIFIED: 65 of 65 files. Each door has its own leaf polyline and

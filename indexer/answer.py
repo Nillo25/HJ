@@ -367,7 +367,8 @@ def evidence_of(rows, con, limit=50):
         out.append({"kind": kind, "id": r["id"], "ref": ref, "type": r["type"],
                     "subtype": r["subtype"], "label": r["label"],
                     "floor": floor_name(r["floor_id"]), "page": r["page"],
-                    "bbox": r["bbox"]})
+                    "bbox": r["bbox"], "area": r["area"], "length": r["length"],
+                    "volume": r["volume"]})
     return out
 
 
