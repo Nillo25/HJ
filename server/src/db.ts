@@ -30,6 +30,9 @@ export const INDEX_VERSION = (() => {
     for (const f of readdirSync(dir).filter((n) => n.endsWith('.py') || n.endsWith('.sql')).sort()) {
       h.update(f).update(readFileSync(path.join(dir, f)));
     }
+    // the label dictionaries decide what a room is: a changed entry must not be served from an old index
+    const dd = path.join(dir, 'dict');
+    for (const f of readdirSync(dd).filter((n) => n.endsWith('.json')).sort()) h.update(f).update(readFileSync(path.join(dd, f)));
   } catch { /* no indexer next to the server: version stays constant */ }
   return h.digest('hex').slice(0, 12);
 })();

@@ -1,0 +1,151 @@
+{
+ "lang": "et",
+ "name": "Estonian",
+ "entries": {
+  "tualettruum": {
+   "type": "wc",
+   "full": "tualettruum",
+   "src": "dataset"
+  },
+  "inva-wc": {
+   "type": "wc",
+   "full": "invatualett",
+   "src": "dataset"
+  },
+  "wc": {
+   "type": "wc",
+   "full": "wc",
+   "src": "dataset"
+  },
+  "magamistuba": {
+   "type": "bedroom",
+   "full": "magamistuba",
+   "src": "dataset"
+  },
+  "elutuba": {
+   "type": "living",
+   "full": "elutuba",
+   "src": "dataset"
+  },
+  "elutuba+köök": {
+   "type": "kitchen",
+   "full": "elutuba + köök (open plan)",
+   "src": "dataset"
+  },
+  "koridor": {
+   "type": "corridor",
+   "full": "koridor",
+   "src": "dataset"
+  },
+  "esik": {
+   "type": "corridor",
+   "full": "esik",
+   "src": "dataset"
+  },
+  "trepikoda": {
+   "type": "corridor",
+   "full": "trepikoda",
+   "src": "dataset"
+  },
+  "fuajee-trepikoda": {
+   "type": "corridor",
+   "full": "fuajee-trepikoda",
+   "src": "dataset"
+  },
+  "abiruum": {
+   "type": "storage",
+   "full": "abiruum",
+   "src": "dataset"
+  },
+  "el.kilp": {
+   "type": "technical",
+   "full": "elektrikilp",
+   "src": "dataset"
+  },
+  "veem.sõlm": {
+   "type": "technical",
+   "full": "veemõõtesõlm",
+   "src": "dataset"
+  },
+  "soojussõlm": {
+   "type": "technical",
+   "full": "soojussõlm",
+   "src": "dataset"
+  },
+  "ventilatsiooniruum": {
+   "type": "technical",
+   "full": "ventilatsiooniruum",
+   "src": "dataset"
+  },
+  "pesukoda": {
+   "type": "technical",
+   "full": "pesukoda",
+   "src": "dataset"
+  },
+  "koristusruum": {
+   "type": "technical",
+   "full": "koristusruum",
+   "src": "dataset"
+  },
+  "server": {
+   "type": "technical",
+   "full": "server",
+   "src": "dataset"
+  },
+  "lift": {
+   "type": "technical",
+   "full": "lift",
+   "src": "dataset"
+  },
+  "liikumisvahendid": {
+   "type": "storage",
+   "full": "liikumisvahendite hoiuruum",
+   "src": "dataset"
+  },
+  "valveruum": {
+   "type": "office",
+   "full": "valveruum",
+   "src": "dataset"
+  },
+  "hooldustöötajad": {
+   "type": "office",
+   "full": "hooldustöötajate ruum",
+   "src": "dataset"
+  },
+  "sots.töötaja": {
+   "type": "office",
+   "full": "sotsiaaltöötaja",
+   "src": "dataset"
+  },
+  "arvutiklass": {
+   "type": "office",
+   "full": "arvutiklass",
+   "src": "dataset"
+  },
+  "personali puhkeruum": {
+   "type": "office",
+   "full": "personali puhkeruum",
+   "src": "dataset"
+  },
+  "köök": {
+   "type": "kitchen",
+   "full": "köök",
+   "src": "knowledge"
+  },
+  "vannituba": {
+   "type": "bathroom",
+   "full": "vannituba",
+   "src": "knowledge"
+  },
+  "panipaik": {
+   "type": "storage",
+   "full": "panipaik",
+   "src": "knowledge"
+  },
+  "rõdu": {
+   "type": "balcony",
+   "full": "rõdu",
+   "src": "knowledge"
+  }
+ }
+}

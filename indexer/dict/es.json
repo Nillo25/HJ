@@ -1,0 +1,71 @@
+{
+ "lang": "es",
+ "name": "Spanish",
+ "entries": {
+  "dorm": {
+   "type": "bedroom",
+   "full": "dormitorio",
+   "src": "knowledge"
+  },
+  "dormitorio": {
+   "type": "bedroom",
+   "full": "dormitorio",
+   "src": "knowledge"
+  },
+  "cocina": {
+   "type": "kitchen",
+   "full": "cocina",
+   "src": "knowledge"
+  },
+  "baño": {
+   "type": "bathroom",
+   "full": "baño",
+   "src": "knowledge"
+  },
+  "aseo": {
+   "type": "wc",
+   "full": "aseo",
+   "src": "knowledge"
+  },
+  "salón": {
+   "type": "living",
+   "full": "salón",
+   "src": "knowledge"
+  },
+  "salon": {
+   "type": "living",
+   "full": "salón",
+   "src": "knowledge"
+  },
+  "comedor": {
+   "type": "living",
+   "full": "comedor",
+   "src": "knowledge"
+  },
+  "pasillo": {
+   "type": "corridor",
+   "full": "pasillo",
+   "src": "knowledge"
+  },
+  "trastero": {
+   "type": "storage",
+   "full": "trastero",
+   "src": "knowledge"
+  },
+  "terraza": {
+   "type": "balcony",
+   "full": "terraza",
+   "src": "knowledge"
+  },
+  "balcón": {
+   "type": "balcony",
+   "full": "balcón",
+   "src": "knowledge"
+  },
+  "vestidor": {
+   "type": "storage",
+   "full": "vestidor",
+   "src": "knowledge"
+  }
+ }
+}

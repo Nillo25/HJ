@@ -1,4 +1,6 @@
 """Room label normalisation and the hand-written dictionary."""
+import json
+import os
 import re
 import unicodedata
 
@@ -121,6 +123,37 @@ RULES = [
 RULES = [(name, re.compile(rx)) for name, rx in RULES]
 
 
+# One file per language in dict/, with the source of every entry (see dict/README.md). Loaded once; the first
+# language in this order wins when two languages print the same abbreviation differently.
+LANG_ORDER = ["fi", "de", "fr", "it", "en", "et", "da", "no", "sv", "nl", "es", "pl"]
+
+
+def _load_dicts() -> dict:
+    out: dict[str, dict] = {}
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dict")
+    if not os.path.isdir(base):
+        return out
+    files = sorted(os.listdir(base), key=lambda f: (LANG_ORDER.index(f[:-5]) if f[:-5] in LANG_ORDER else 99, f))
+    for f in files:
+        if not f.endswith(".json"):
+            continue
+        with open(os.path.join(base, f), encoding="utf-8") as fh:
+            data = json.load(fh)
+        for k, v in data.get("entries", {}).items():
+            key = fold(norm(k))
+            if key and key not in out:
+                out[key] = {**v, "lang": data.get("lang")}
+    return out
+
+
+DICT = _load_dicts()
+
+
+def lookup(label: str) -> dict | None:
+    """The dictionary entry behind a label ({type, full, src, lang}) or None: what the answer can cite."""
+    return DICT.get(fold(norm(label))) or DICT.get(fold(norm(re.sub(r"\([^)]*\)?", " ", label or ""))))
+
+
 def subtype_for(label: str, dict_rows: dict | None = None) -> str | None:
     """Semantic type for a label. None means unknown -> unknown_labels.
 
@@ -133,6 +166,9 @@ def subtype_for(label: str, dict_rows: dict | None = None) -> str | None:
         return dict_rows[n]
     if n in SEED:
         return SEED[n]
+    hit = lookup(label)
+    if hit:
+        return hit["type"]
     # the printed room number or an id in brackets is not part of the name
     t = fold(re.sub(r"\([^)]*\)?", " ", label or ""))
     t = re.sub(r"\b[a-z]?\d+([.\-/]\d+)*\b", " ", t)
