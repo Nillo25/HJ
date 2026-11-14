@@ -47,7 +47,7 @@ export type Element = {
   source_ref: string | null; confidence: number; is_primary: number; props: string | null;
 };
 
-type Meta = { kind: Kind; fileName: string; createdAt: number; ready: boolean; indexVersion?: string; raster?: string };
+type Meta = { kind: Kind; fileName: string; createdAt: number; ready: boolean; indexVersion?: string; raster?: string; rasterCost?: number };
 export type Session = {
   uid: string; dir: string; dbPath: string; db: Database.Database; meta: Meta;
   drawing: { id: number; name: string; source: string; status: string; capabilities: any };

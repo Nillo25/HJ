@@ -11,6 +11,8 @@ export type Drawing = {
   vector?: boolean;
   /** a raster plan (PNG) read by the floor-plan service: it is drawn from the scene it returned */
   raster?: boolean;
+  /** what reading the sheet cost in Claude calls (dollars); the service reports money, not tokens */
+  raster_cost_usd?: number;
   capabilities?: { counts?: string; areas?: string; text?: string; reason?: string } | null;
   files?: { format: string; role?: string }[];
 };
@@ -46,6 +48,8 @@ export type Answer = {
   unit?: string;
   confidence?: number;
   route?: string;
+  /** 'raster': read by the floor-plan service (Claude, reported in dollars only) */
+  engine?: string;
   evidence?: Evidence[];
   usage?: UsageItem[];
   cost_usd?: number;

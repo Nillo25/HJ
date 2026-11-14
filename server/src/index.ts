@@ -59,6 +59,7 @@ function card(s: Session) {
     vector: s.meta.kind === 'pdf' ? pdfIsVector(s) : undefined,
     // a PNG read by the floor-plan service: the screen draws its scene instead of the bare picture
     raster: s.meta.kind === 'png' ? Boolean(s.meta.raster) : undefined,
+    raster_cost_usd: s.meta.kind === 'png' ? s.meta.rasterCost ?? 0 : undefined,
   };
 }
 

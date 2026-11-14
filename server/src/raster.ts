@@ -77,14 +77,29 @@ export async function analyze(s: Session): Promise<string> {
   try {
     const id = await upload(file, s.meta.fileName);
     patchMeta(s, { raster: id });
+    await settleCost(s);
     return id;
   } finally { rasterSlots.release(); }
 }
 
 /** The scene was lost on the service side (restart): read the sheet again from our copy of the image. */
 async function reanalyzeFromFile(s: Session): Promise<string> {
-  delete s.meta.raster; scenes.delete(s.uid);
+  delete s.meta.raster; s.meta.rasterCost = 0; scenes.delete(s.uid);
   return analyze(s);
+}
+
+/**
+ * What reading the sheet cost (Claude, in dollars, kept by the service in the scene: the upload, a re-read, the scale).
+ * The service reports money, not tokens: it goes to the usage totals and the daily budget as cost only.
+ */
+async function settleCost(s: Session): Promise<void> {
+  try {
+    const sc = await (await call(`/api/plans/${s.meta.raster}`)).json() as RScene;
+    scenes.set(s.uid, { at: Date.now(), rid: s.meta.raster!, scene: sc });
+    const total = Number(sc.meta?.sheet_cost_usd ?? 0);
+    const delta = total - (s.meta.rasterCost ?? 0);
+    if (delta > 0) { recordUsage(MODEL_NAME, 0, 0, delta); patchMeta(s, { rasterCost: total }); }
+  } catch { /* the cost is only reported, never needed for the answer */ }
 }
 
 /* ------------------------------------------------------------------ scene -> our shapes */
@@ -258,6 +273,7 @@ export async function rasterAutoScale(s: Session) {
   const rid = await analyze(s);
   const r = await (await call(`/api/plans/${rid}/scale/auto`, { method: 'POST', timeoutMs: ANALYZE_TIMEOUT_MS })).json();
   scenes.delete(s.uid);
+  await settleCost(s);
   return r;
 }
 
@@ -268,5 +284,6 @@ export async function rasterReanalyze(s: Session) {
   try { await call(`/api/plans/${rid}/reanalyze`, { method: 'POST', timeoutMs: ANALYZE_TIMEOUT_MS }); }
   finally { rasterSlots.release(); }
   scenes.delete(s.uid);
+  await settleCost(s);
   return { ok: true };
 }

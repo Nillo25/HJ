@@ -91,7 +91,7 @@ export function AnswerCard({ question, answer, loading, onChoose, pick, onPick }
             </div>
             <div>
               <dt className="text-slate-400">Tokens</dt>
-              <dd className="tabular-nums">{tokens.toLocaleString('en-US')}</dd>
+              <dd className="tabular-nums">{answer.engine === 'raster' ? '—' : tokens.toLocaleString('en-US')}</dd>
             </div>
             <div>
               <dt className="text-slate-400">Cost</dt>
@@ -104,7 +104,7 @@ export function AnswerCard({ question, answer, loading, onChoose, pick, onPick }
             {(answer.usage ?? []).map(u => (
               <div key={u.model} className="col-span-2 sm:col-span-4">
                 <dt className="text-slate-400">Model</dt>
-                <dd className="tabular-nums">{u.model}: {u.input_tokens} in / {u.output_tokens} out</dd>
+                <dd className="tabular-nums">{answer.engine === 'raster' ? `Claude (floor-plan service): $${u.cost_usd.toFixed(5)}` : `${u.model}: ${u.input_tokens} in / ${u.output_tokens} out`}</dd>
               </div>
             ))}
             {call && (
@@ -122,6 +122,20 @@ export function AnswerCard({ question, answer, loading, onChoose, pick, onPick }
 
 /** What this one question cost: inference is judged, so it is never hidden. */
 function TokenStrip({ answer }: { answer: Answer }) {
+  // a raster plan is read by the floor-plan service: Claude is billed in dollars there, tokens are not reported
+  if (answer.engine === 'raster') {
+    const usd = answer.cost_usd ?? 0;
+    return usd > 0 ? (
+      <div className="rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-800" aria-label="Cost of this question">
+        <b className="tabular-nums">${usd.toFixed(5)}</b> spent on Claude (floor-plan service)
+        <span className="text-slate-500"> · it reports the cost, not tokens</span>
+      </div>
+    ) : (
+      <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-900" aria-label="Cost of this question">
+        <b className="tabular-nums">$0.00000</b> spent: answered by the detectors and rules, Claude was not called.
+      </div>
+    );
+  }
   const used = answer.usage ?? [];
   const inT = used.reduce((n, u) => n + u.input_tokens, 0);
   const outT = used.reduce((n, u) => n + u.output_tokens, 0);

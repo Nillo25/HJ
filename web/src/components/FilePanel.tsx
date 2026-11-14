@@ -157,7 +157,9 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
               <Badge tone="blue">{KIND_LABEL[current.kind]}</Badge>
               <span>{current.kind === 'pdf'
                 ? `${(current.text_lines ?? 0).toLocaleString('en-US')} text lines read${current.elements ? `, ${current.elements} schedule rows` : ''}`
-                : current.kind === 'png' ? (current.raster ? 'read by the floor-plan service' : 'shown as uploaded')
+                : current.kind === 'png' ? (current.raster
+                  ? `read by the floor-plan service · ${current.raster_cost_usd ? `Claude $${current.raster_cost_usd.toFixed(4)}` : 'no Claude call'}`
+                  : 'shown as uploaded')
                 : current.elements ? `${current.elements.toLocaleString('en-US')} objects parsed` : 'not parsed (no objects)'}</span>
               {parsedMs != null && <span className="tabular-nums">in {(parsedMs / 1000).toFixed(1)} s</span>}
             </p>
