@@ -54,6 +54,20 @@ app.get('/api/drawings/:id', (c) => {
   });
 });
 
+/** The original IFC, for the 3D viewer in the browser (it parses the file itself). */
+const VIEWER_MAX_MB = Number(process.env.VIEWER_MAX_MB ?? 150);
+app.get('/api/drawings/:id/source', (c) => {
+  const s = getSession(c.req.param('id'));
+  if (!s || s.meta.kind !== 'ifc') return c.json({ error: 'no source' }, 404);
+  const abs = path.join(s.dir, 'data', SOURCE_BY_KIND.ifc, s.meta.fileName);
+  if (!existsSync(abs)) return c.json({ error: 'no source' }, 404);
+  const size = statSync(abs).size;
+  if (size > VIEWER_MAX_MB * 1e6) return c.json({ error: `file is larger than ${VIEWER_MAX_MB} MB: too big for the 3D view` }, 413);
+  return c.body(Readable.toWeb(createReadStream(abs)) as ReadableStream, 200, {
+    'content-type': 'application/octet-stream', 'content-length': String(size),
+  });
+});
+
 /** The original upload, for the raster display (PNG). */
 app.get('/api/drawings/:id/image', (c) => {
   const s = getSession(c.req.param('id'));

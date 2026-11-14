@@ -4,17 +4,22 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build"
+    "build": "tsc --noEmit && vite build",
+    "predev": "node scripts/copy-wasm.mjs",
+    "prebuild": "node scripts/copy-wasm.mjs"
   },
   "dependencies": {
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "three": "^0.187.0",
+    "web-ifc": "^0.0.79"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",
     "@types/node": "^26.6.6",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@types/three": "^0.187.0",
     "@vitejs/plugin-react": "^5.0.0",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.8.3",

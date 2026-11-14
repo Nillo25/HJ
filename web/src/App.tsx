@@ -5,6 +5,7 @@ import { AccuracyPanel } from './components/AccuracyPanel';
 import { AnswerCard } from './components/AnswerCard';
 import { EvidenceTable } from './components/EvidenceTable';
 import { FilePanel } from './components/FilePanel';
+import { IfcViewer } from './components/IfcViewer';
 import { PlanViewer } from './components/PlanViewer';
 import { UsageBar } from './components/UsageBar';
 import { Button, Card, CardBody, CardHeader, CardTitle, Input } from './components/ui';
@@ -24,6 +25,7 @@ export default function App() {
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [loading, setLoading] = useState(false);
   const [usageKey, setUsageKey] = useState(0);
+  const [ifcTab, setIfcTab] = useState<'3d' | 'plan'>('3d');
 
   // after a reload, come back to the file that was open (uploads live on the server for a day)
   useEffect(() => {
@@ -114,7 +116,19 @@ export default function App() {
 
         {/* right: the drawing itself, with what was asked marked on it */}
         <div className="min-w-0 space-y-5 lg:sticky lg:top-4 lg:self-start">
-          {hasPlan && <PlanViewer key={current.id} drawingId={current.id} evidence={evidence} />}
+          {current?.kind === 'ifc' && (
+            <div role="tablist" aria-label="Model view" className="flex gap-1">
+              {([['3d', '3D model'], ['plan', 'Plan by storey']] as const).map(([k, label]) => (
+                <button key={k} role="tab" aria-selected={ifcTab === k} onClick={() => setIfcTab(k)}
+                  className={ifcTab === k ? 'rounded-md bg-slate-900 px-3 py-1 text-xs font-medium text-white' : 'rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-100'}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* both stay mounted: switching must not reload a 70 MB model */}
+          {current?.kind === 'ifc' && <div className={ifcTab === '3d' ? '' : 'hidden'}><IfcViewer key={current.id} drawingId={current.id} evidence={evidence} /></div>}
+          {hasPlan && <div className={current.kind === 'ifc' && ifcTab !== 'plan' ? 'hidden' : ''}><PlanViewer key={current.id} drawingId={current.id} evidence={evidence} /></div>}
           {current?.kind === 'png' && (
             <Card>
               <CardHeader><CardTitle>Drawing</CardTitle></CardHeader>
