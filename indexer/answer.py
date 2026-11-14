@@ -146,6 +146,7 @@ def list_floors(con, drawing):
 # judge will miss and fall through to the LLM path.
 
 T = [
+    (r"^on sheet a-?[78]\d*\b.*", "schedule", {"_q": True}),
     # --- ifc_models: per storey ---
     (r"how many (?P<kind>doors|windows|walls|columns|beams|stairs|rooms \(spaces\))"
      r" are shown on the floor plan of ['\"“](?P<floor>[^'\"”]+)['\"”]",
@@ -218,6 +219,8 @@ def match_template(question: str):
         if base.get("_ifc_model"):
             kw["type"] = IFC_KIND[g["kind"]]
             kw["_whole_model"] = True
+        if base.get("_q"):
+            kw["q"] = question
         if base.get("_apt"):
             kw["label"] = g["apt"]
         if base.get("_room"):
@@ -228,11 +231,115 @@ def match_template(question: str):
     return None
 
 
+# ------------------------------------------------ schedule sheets (PDF tables)
+
+def _sched(con, drawing, kind):
+    rows = _rows(con, drawing, type=kind)
+    return [(r, json.loads(r["props"] or "{}")) for r in rows]
+
+
+def _dim(s):
+    """3' - 0" -> 3'-0" (the notation of the answer key)."""
+    return re.sub(r"\s*-\s*", "-", s)
+
+
+def _inches(s):
+    m = re.match(r"(\d+)['\u2019]\s*-\s*(\d+)", s)
+    return int(m.group(1)) * 12 + int(m.group(2)) if m else None
+
+
+def schedule(con, drawing, q):
+    """Door schedule and finish room schedule on one sheet. Questions are
+    matched by pattern; every branch returns the table rows it used."""
+    q = q.lower()
+    doors, rooms = _sched(con, drawing, "door_row"), _sched(con, drawing, "room_row")
+    pick = lambda xs: [x[0] for x in xs]
+
+    # ---- door schedule
+    m = re.search(r"door (?:number )?(\d{3}\.[a-z]\d?)", q)
+    if m and doors:
+        d = [x for x in doors if x[0]["label"].lower() == m.group(1)]
+        if d:
+            p = d[0][1]
+            if "width and height" in q:
+                return f"{_dim(p['width'])} wide x {_dim(p['height'])} high", pick(d)
+            if "width" in q:
+                return _dim(p["width"]), pick(d)
+            if "hardware" in q:
+                return p["hardware"], pick(d)
+            if "material" in q:
+                return p["door_matl"], pick(d)
+            if "door type" in q:
+                return p["type"], pick(d)
+    if "door schedule" in q and "how many" in q and doors:
+        sel = doors
+        if (t := re.search(r"door type ([a-z]\d)", q)):
+            sel = [x for x in sel if x[1].get("type", "").lower() == t.group(1)]
+        elif (t := re.search(r"material ([a-z]+-\d)", q)):
+            sel = [x for x in sel if x[1].get("door_matl", "").lower() == t.group(1)]
+        elif (t := re.search(r"frame \(([a-z]+-\d)\)", q)):
+            sel = [x for x in sel if x[1].get("frame_matl", "").lower() == t.group(1)]
+        elif "aluminium storefront" in q:
+            sel = [x for x in sel if x[1].get("frame_matl", "") in ("AL-1", "AL-2")]
+        elif (t := re.search(r"note ([a-z])\b", q)):
+            sel = [x for x in sel if t.group(1).upper() in
+                   [n.strip() for n in x[1].get("notes", "").split(",")]]
+        elif (t := re.search(r"(\d+)'-(\d+)\" (wide|high)", q)):
+            v = int(t.group(1)) * 12 + int(t.group(2))
+            key = "width_in" if t.group(3) == "wide" else "height_in"
+            sel = [x for x in sel if x[1].get(key) == v]
+        elif (t := re.search(r"for room (\d+)", q)):
+            sel = [x for x in sel if x[1].get("room") == t.group(1)]
+        elif "listed" not in q:
+            return None, []
+        return len(sel), pick(sel)
+
+    # ---- finish room schedule
+    if rooms:
+        A = lambda xs: sum(x[0]["area"] or 0 for x in xs)
+        if "how many rooms are listed" in q:
+            return len(rooms), pick(rooms)
+        if "total area of all rooms" in q:
+            sel = [x for x in rooms if x[0]["area"] is not None]
+            return A(sel), pick(sel)
+        if (t := re.search(r"rooms named ([a-z .']+?) in", q)):
+            sel = [x for x in rooms if x[1].get("name", "").lower() == t.group(1)]
+            return A(sel), pick(sel)
+        if "women's and men's locker" in q:
+            sel = [x for x in rooms if "locker" in x[1].get("name", "").lower()]
+            return A(sel), pick(sel)
+        if (t := re.search(r"floor finish (f\d)", q)):
+            sel = [x for x in rooms if x[1].get("floor", "").lower().startswith(t.group(1))]
+            if "how many" in q:
+                return f"{len(sel)} rooms, {int(A(sel))} SF", pick(sel)
+            return A(sel), pick(sel)
+        if (t := re.search(r"\((b\d)\)", q)) and "base" in q:
+            sel = [x for x in rooms if x[1].get("base", "").lower() == t.group(1)]
+            return len(sel), pick(sel)
+        if "all four walls" in q and (t := re.search(r"(w\d)", q)):
+            sel = [x for x in rooms if all(x[1].get(k, "").lower() == t.group(1)
+                                           for k in ("north", "south", "east", "west"))]
+            return len(sel), pick(sel)
+        if "largest area" in q:
+            x = max(rooms, key=lambda r: r[0]["area"] or 0)
+            return f"Room {x[0]['label']} {x[1]['name'].title()} ({int(x[0]['area'])} SF)", [x[0]]
+        if (t := re.search(r"area of room (\d+)", q)):
+            sel = [x for x in rooms if x[0]["label"] == t.group(1)]
+            return (sel[0][0]["area"], pick(sel)) if sel and sel[0][0]["area"] else (None, [])
+        if (t := re.search(r"room (\d+)", q)):
+            sel = [x for x in rooms if x[0]["label"] == t.group(1)]
+            for key, word in (("ceiling", "ceiling"), ("north", "north wall"), ("floor", "floor finish")):
+                if word in q and sel and sel[0][1].get(key):
+                    return sel[0][1][key], pick(sel)
+    return None, []
+
+
 # ------------------------------------------------------------------ facade
 
 FNS = {"count_objects": count_objects, "room_area": room_area,
        "apartment_area": apartment_area, "count_labelled": count_labelled,
-       "sum_quantity": sum_quantity, "list_floors": list_floors}
+       "sum_quantity": sum_quantity, "list_floors": list_floors,
+       "schedule": schedule}
 
 
 def evidence_of(rows, limit=50):
@@ -286,6 +393,11 @@ def ask(con, drawing: str, question: str) -> dict:
         return {"status": "refused", "reason": "not found in the data",
                 "missing": "element", "searched": json.dumps(kw, ensure_ascii=False),
                 "route": "cache", "cost_usd": 0.0}
+    if fn == "schedule":
+        unit = "sf" if "area" in kw["q"].lower() else ("text" if isinstance(value, str) else "count")
+        return {"status": "answered", "answer": value, "unit": unit, "confidence": 1.0,
+                "route": "cache", "evidence": evidence_of(rows), "cost_usd": 0.0,
+                "fn": fn, "args": {}}
     unit = ("m2" if fn in ("room_area", "apartment_area")
             or kw.get("field") == "area" else "count")
     conf = min([r["confidence"] for r in rows], default=1.0) if rows else 1.0
