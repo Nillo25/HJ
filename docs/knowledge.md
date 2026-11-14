@@ -203,6 +203,32 @@ framing: answer 60% and be wrong 2%, rather than answer everything and be wrong 
 - Playwright (preinstalled in the Linux sandbox) was used for UI checks: the full UI was verified
   once in Chromium; it has not been tested on the Mac.
 
+## 7b. Product-path benchmark (indexer/bench.py) and what it found
+
+`bench.py` uploads a file the way a judge does and asks the dataset questions through the running server; the
+language of each question is picked at random. `eval.py` (direct calls, no server) hid every problem below.
+
+| run | wrong | notes |
+|---|---|---|
+| first (sample of 24 files, 562 q) | 86 of 518 (16.6%) | 68 came from the question cache |
+| after the cache fix | 14 of 528 (2.7%) | |
+| after parsed calls run in Python, schema fixes | 5 of 529 (0.9%) | ifc_models 193/0, ifc_bench 122 of 241 answered |
+
+- The question cache stored the constants of the first question (a room label, a floor name) and answered all similar
+  questions with them. `templatize` also broke its own placeholders (digits inside `{0}`). Fixed: one pass, `abstractArgs`
+  turns values taken from the question into slots and does not cache a call that would freeze one. `cache.db` is versioned.
+- Verda limits requests per minute (`tenant rpm`): model calls go through a gate (`LLM_RPM`, default 40) and are retried.
+- A model-chosen call is executed by `answer.call` (Python), the same code as the templates. `tools.ts` is gone.
+- Schema traps: "WC" is a toilet fixture, not a WC room; a room NUMBER in the question (0.22) is the label, the name in
+  brackets is not; a compound question ("walls and columns together") is `unsupported`, not half answered.
+- "Rooms labelled 'Stanza'": the key counts single-room units printed "App. A" as bedrooms in some plans and not in
+  others (identical structure). The file does not say, so the answer is `needs_clarification` with both numbers.
+- Apartments: an outline with no room, or under 8 m2, is not an apartment; a second outline with the same letter is ignored.
+- Fixtures by bounding box reach a ceiling (threshold search 21 of 34, meaningless values): kept as `estimated`.
+- ifc_bench facts (`ifc_facts.py --q`): blocks are chosen by the question words; types, materials, load-bearing per element,
+  fire ratings, MEP systems, slabs split by PredefinedType (floor 285 / roof 78 matches the key: 2191.96 m3), site coordinates.
+  Where the key says "length not available", we state the footprint-measured figure as an estimate.
+
 ## 8. Not yet verified
 
 - The real-model path in several languages; tokens of failed calls; DeepSeek vs Kimi quality.

@@ -5,10 +5,9 @@ deduplication). Order is by value for the demo.
 
 ## Before the demo
 
-1. **Measure the real model** (DeepSeek works through Verda). Compare DeepSeek and Kimi on 30-50 questions
-   (right / wrong / refused, tokens, cost, latency, languages); count the tokens of failed calls; cut the
-   facts sheet for `report` (3.7k tokens) by choosing blocks per question. A compound question
-   ("walls and columns together") was answered 846 instead of 883: refuse or split such questions.
+1. **Model.** Done with DeepSeek 4.1 Flash only (Kimi is not available with the current key). Measured with
+   `indexer/bench.py`: see `docs/knowledge.md` 7b. Open: facts blocks for languages other than English
+   (`ROUTES` in `ifc_facts.py` are English words), a cheaper parse call for IFC (it still sends 120 room labels).
 2. **Indexer limits.** Upload parsing has a timeout (`INDEX_TIMEOUT_S`). Still open: a page cap and
    PDF triage for the batch indexer (55 large PDFs in `opening_design/*/Transfer/_Archive`).
 3. **Deploy.** Python 3.12 and Node 22+ in one image; `pdfminer.six` installed; set `PYTHON_BIN`;
