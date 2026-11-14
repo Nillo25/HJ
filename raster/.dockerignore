@@ -1,0 +1,17 @@
+.git
+.idea
+.claude
+.venv
+data
+runs
+out
+eval
+scripts
+colab
+tests
+stoa
+*.pt
+__pycache__
+.pytest_cache
+.env
+*.md

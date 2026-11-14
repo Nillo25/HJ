@@ -36,10 +36,22 @@ if (!hasPdf) console.warn(`[dev] pdfminer.six is missing for ${python}: PDF text
 if (!existsSync(path.join(root, 'server', '.env'))) console.warn('[dev] server/.env not found: only questions that need no model will work (see server/.env.example).');
 console.log(`[dev] python: ${python}\n[dev] open http://localhost:5173  (API on :3000)\n`);
 
-const env = { ...process.env, PYTHON_BIN: python };
+// The floor-plan service for PNG (raster/): started when its weights and Python packages are there (see raster/WEIGHTS.md).
+// RASTER_PYTHON is the interpreter with ultralytics installed (default: the one above); RASTER_URL set = an existing service is used.
+const rasterPython = process.env.RASTER_PYTHON || python;
+const rasterDir = path.join(root, 'raster');
+const hasWeights = existsSync(path.join(rasterDir, 'runs', 'colab', 'floorplan_v2.pt')) || Boolean(process.env.FP_MODEL);
+const rasterReady = !process.env.RASTER_URL && hasWeights &&
+  spawnSync(rasterPython, ['-c', 'import ultralytics, fastapi, uvicorn'], { stdio: 'ignore' }).status === 0;
+if (process.env.RASTER_URL) console.log(`[dev] floor-plan service: ${process.env.RASTER_URL}`);
+else if (!rasterReady) console.warn('[dev] floor-plan service not started (needs raster/runs/colab/floorplan_v2.pt and `pip install -r raster/requirements.txt`): PNG plans are only shown, not read.');
+else console.log('[dev] floor-plan service: http://localhost:8001');
+
+const env = { ...process.env, PYTHON_BIN: python, ...(rasterReady ? { RASTER_URL: 'http://localhost:8001' } : {}) };
 const procs = [
   ['api', spawn(npm, ['run', 'dev'], { cwd: path.join(root, 'server'), env, shell: win })],
   ['web', spawn(npm, ['run', 'dev'], { cwd: path.join(root, 'web'), env, shell: win })],
+  ...(rasterReady ? [['raster', spawn(rasterPython, ['-m', 'uvicorn', 'server.app:app', '--port', '8001'], { cwd: rasterDir, env, shell: false })]] : []),
 ];
 const tag = (name, stream, out) => {
   let buf = '';

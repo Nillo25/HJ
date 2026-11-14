@@ -12,7 +12,8 @@ measured results, decisions, mistakes). `docs/backlog.md` says what is left, `do
 - Code comments in English, no fluff. Code must run cross-platform (Mac, Linux, Windows).
 - Never print, echo or commit secrets. Keys live only in `server/.env` (git-ignored). Do not read
   the key value. If a key is missing, ask him to set it.
-- cubicasa5k (raster plans) is owned by another person and on hold. Do not build it.
+- Raster plans (PNG, cubicasa5k) are read by `raster/`, the colleagues' project (YOLO + Claude, FastAPI). Do not edit code in `raster/`
+  (it is merged from their repository); the adapter is `server/src/raster.ts`, no pixel reading of our own.
 - The product has no dataset database: each upload is `uploads/<uid>/index.db` (docs/adr/0009).
   `data/opening_test.db` and `data/demo.db` are old dev databases (git-ignored). Dataset-wide databases are scratch files for
   `eval.py`; ask before deleting anything that is not obviously a build artefact.

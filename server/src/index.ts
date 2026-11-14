@@ -268,6 +268,7 @@ app.post('/api/ask', async (c) => {
     return c.json(res);
   } catch (e: any) {
     if (e instanceof BudgetError) return c.json({ status: 'refused', reason: e.message, missing: 'budget', route: 'none', cost_usd: 0 }, 200);
+    if (e instanceof RasterError) return c.json({ status: 'refused', reason: e.message, missing: 'source_model', route: 'none', usage: [], cost_usd: 0 }, 200);
     return c.json({ status: 'refused', reason: `${e?.name}: ${e?.message}`,
                     missing: 'internal', route: 'llm', cost_usd: 0 }, 200);
   }
