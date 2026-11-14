@@ -38,7 +38,7 @@ ARC_MIN_PPM = 33.0  # двери по дугам — только если дв�
 WALL_ROOMS_MIN_PPM = 20.0  # помещения по стенам (рамки от ИИ) — только если комната 3 м на листе ≥ 60 px
 
 # менять при правках разбора, влияющих на сцену: повторная загрузка того же файла тогда разберёт его заново
-PIPELINE_VERSION = "2026-11-14.envelope6+sheet-tiles-door-verify"
+PIPELINE_VERSION = "2026-11-14.envelope6+sheet-tiles-door-verify+frame+mep-walls"
 
 THRESHOLDS = json.loads((Path(__file__).parent / "thresholds.json").read_text())
 
@@ -301,6 +301,11 @@ def analyze_sheet(img: np.ndarray, sc: Scene, full: np.ndarray | None = None, f:
             drop_outside_drawing(sc, sheet.get("drawing_bbox"), max_frac=None)
     if (est.get("px_per_m") or 0) >= WALL_ROOMS_MIN_PPM and tb.get("sheet_number") and not sheet.get("area_labels"):
         rooms_by_walls(img, sc, sheet)
+    # инженерный лист (M/P/E/F): архитектура — бледная подложка, модель стен её не видит; стены — по границам
+    # помещений, построенных по линиям чертежа (fp/walls_from_rooms.py)
+    from . import walls_from_rooms
+    if est.get("px_per_m") and walls_from_rooms.applies(tb.get("sheet_number")):
+        sc.meta["walls_from_rooms"] = walls_from_rooms.add(sc, est["px_per_m"])
     # чертёжный лист (номер вида M-101A, A-2, C01): двери ещё и по дугам открывания — модель обучена на квартирах
     # и на таких листах видит их слабо. На квартирных планах дуги вредят (53.7% -> 36.6% на train+val eval_set),
     # поэтому там не включаются. Мелкий масштаб (дверь < 20 px, школа 1:200) — тоже нет: под четверть окружности
