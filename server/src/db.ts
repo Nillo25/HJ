@@ -169,7 +169,9 @@ export function queryElements(db: Database.Database, a: {
 
 /* --------------------------------------- the one shared database: the cache */
 
-const cacheDb = new Database(process.env.CACHE_DB ?? 'cache.db');
+const cachePath = process.env.CACHE_DB ?? 'cache.db';
+if (cachePath !== ':memory:') mkdirSync(path.dirname(path.resolve(cachePath)), { recursive: true });
+const cacheDb = new Database(cachePath);
 cacheDb.pragma('journal_mode = WAL');
 // version 2: entries are templates with {i} slots. Version 1 stored constants of the first question
 // that was asked and answered every similar question with them: those rows must not be reused.
