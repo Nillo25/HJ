@@ -88,7 +88,8 @@ async function loadPlans(select) {
 
 async function openPlan(id) {
   planId = id; history = []; $('#log').innerHTML = '';
-  const svgText = await fetch(`/api/plans/${id}/svg`).then(r => r.text());
+  // no-cache: после «Разобрать заново» SVG по тому же адресу новый — сверяем с сервером, а не берём старую копию
+  const svgText = await fetch(`/api/plans/${id}/svg`, { cache: 'no-cache' }).then(r => r.text());
   $('#stage').innerHTML = svgText;
   const svg = $('#stage svg');
   svg.querySelector('image')?.setAttribute('href', `/api/plans/${id}/image`);
@@ -99,6 +100,21 @@ async function openPlan(id) {
     `<span class="chip" data-cls="${c}"><i style="background:${META.colors[c]}"></i>${META.labels[c] || c} · ${n}</span>`).join('');
   showStatus(scene);
   say(`План «${id}» загружен. Спросите что-нибудь.`, 'bot');
+  if (scene.stale) staleNotice(id);
+}
+
+// сцена разобрана старой версией (без трубопроводов, со старым масштабом…) — предложить разобрать заново
+function staleNotice(id) {
+  say('Этот план разобран старой версией: часть ответов (трубы, масштаб, помещения) может быть неполной или неверной.', 'bot');
+  const b = document.createElement('button');
+  b.type = 'button'; b.textContent = 'Разобрать заново';
+  b.onclick = async () => {
+    b.disabled = true; b.textContent = 'разбираю… (15–60 с)';
+    $('#status').textContent = 'разбираю заново…';
+    try { await api(`/api/plans/${id}/reanalyze`, { method: 'POST' }); await loadPlans(id); }
+    catch (err) { b.disabled = false; b.textContent = 'Разобрать заново'; say('Ошибка: ' + err.message, 'bot'); }
+  };
+  $('#log').lastChild.appendChild(b);
 }
 
 function scaleText(meta) {

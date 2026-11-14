@@ -104,6 +104,8 @@ async def upload(file: UploadFile = File(...), force: bool = False):
             except (OSError, ValueError):
                 continue
             if m.get("file_sha256") == sha and m.get("pipeline") == pipe:
+                if not (d / "image_hd.png").exists():  # сцена старше копии для показа — достроить, без разбора
+                    await run_in_threadpool(_display_from_upload, data, d)
                 return {"id": d.name, "cached": True}
     stem = re.sub(r"[^\w\-]+", "_", Path(file.filename or "plan").stem)[:40]
     # id = имя + начало sha256 файла: тот же файл -> тот же id, на любой машине
@@ -124,19 +126,66 @@ async def upload(file: UploadFile = File(...), force: bool = False):
     return {"id": plan_id, "cached": False}
 
 
+def _display_from_upload(data: bytes, d: Path) -> None:
+    """Копия для показа из загруженного файла: та же предобработка (поворот, обрезка), что и при разборе."""
+    import cv2
+    import numpy as np
+    from fp.preprocess import preprocess
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_UNCHANGED)
+    if img is None:
+        return
+    keep: dict = {}
+    _, info = preprocess(img, keep=keep)
+    size = json.loads((d / "scene.json").read_text()).get("meta", {}).get("size")
+    if keep.get("display") is not None and (not size or list(size) == info["size"]) \
+            and max(keep["display"].shape[:2]) > max(info["size"]):  # та же обрезка, что у сцены, и крупнее
+        infer.save_display(keep["display"], d)
+
+
 @app.get("/api/plans/{plan_id}")
 def scene(plan_id: str):
-    return Scene.load(_dir(plan_id)).to_dict()
+    d = Scene.load(_dir(plan_id)).to_dict()
+    # разобрана другой версией разбора (старше трубопроводов, масштаба…) — интерфейс предложит разобрать заново
+    d["stale"] = d.get("meta", {}).get("pipeline") != _pipeline()
+    return d
+
+
+@app.post("/api/plans/{plan_id}/reanalyze")
+async def reanalyze(plan_id: str):
+    """Разобрать сохранённую сцену заново текущей версией — по её картинке, без повторной загрузки файла."""
+    if not MODEL:
+        raise HTTPException(503, "модель не задана: запустите сервер с FP_MODEL=<путь к best.pt>")
+    d = _dir(plan_id)
+    old = json.loads((d / "scene.json").read_text()).get("meta", {})
+    with tempfile.TemporaryDirectory() as tmp:  # infer.run перезаписывает image.png в папке сцены
+        src = Path(tmp) / "image.png"
+        hd = d / "image_hd.png"  # исходник крупнее 2048 px — копия для показа, иначе сама картинка разбора
+        src.write_bytes((hd if hd.exists() else d / "image.png").read_bytes())
+        try:
+            sc = await run_in_threadpool(infer.run, src, d, model=MODEL)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+    sc.meta.update(pipeline=_pipeline(), source_image=old.get("source_image") or sc.meta.get("source_image"))
+    if old.get("file_sha256"):
+        sc.meta["file_sha256"] = old["file_sha256"]
+    sc.save(d)
+    return {"id": plan_id, "cached": False}
+
+
+# картинка и SVG меняются при повторном разборе под тем же адресом: браузер сверяет ETag, а не берёт старую копию
+NO_CACHE = {"Cache-Control": "no-cache"}
 
 
 @app.get("/api/plans/{plan_id}/image")
 def image(plan_id: str):
-    return FileResponse(_dir(plan_id) / "image.png")
+    d = _dir(plan_id)
+    hd = d / "image_hd.png"  # для показа — копия в высоком разрешении, координаты сцены те же (SVG её масштабирует)
+    return FileResponse(hd if hd.exists() else d / "image.png", headers=NO_CACHE)
 
 
 @app.get("/api/plans/{plan_id}/svg")
 def svg(plan_id: str):
-    return FileResponse(_dir(plan_id) / "scene.svg", media_type="image/svg+xml")
+    return FileResponse(_dir(plan_id) / "scene.svg", media_type="image/svg+xml", headers=NO_CACHE)
 
 
 class ChatIn(BaseModel):

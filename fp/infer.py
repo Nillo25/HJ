@@ -38,7 +38,7 @@ ARC_MIN_PPM = 33.0  # двери по дугам — только если дв�
 WALL_ROOMS_MIN_PPM = 20.0  # помещения по стенам (рамки от ИИ) — только если комната 3 м на листе ≥ 60 px
 
 # менять при правках разбора, влияющих на сцену: повторная загрузка того же файла тогда разберёт его заново
-PIPELINE_VERSION = "2026-11-14.scale4+sheet-tiles-door-verify"
+PIPELINE_VERSION = "2026-11-14.envelope6+sheet-tiles-door-verify"
 
 THRESHOLDS = json.loads((Path(__file__).parent / "thresholds.json").read_text())
 
@@ -148,8 +148,9 @@ def run(image: Path, out: Path, model: str | None = None, gt_svg: Path | None = 
         if not model:
             raise ValueError("нужен --model (веса YOLO-seg) или --gt-svg")
         original = img  # полное разрешение — для тайлов и проверки дверей на чертёжных листах (fp/tiles.py)
+        keep: dict = {}
         if do_preprocess:
-            img, info = preprocess(img)
+            img, info = preprocess(img, keep=keep)
         else:
             info = {"preprocess": False}
         h, w = img.shape[:2]
@@ -157,6 +158,8 @@ def run(image: Path, out: Path, model: str | None = None, gt_svg: Path | None = 
         dets, source = detect_yolo(img, model, candidates=cands), "yolo"
         info = {**info, "candidates": cands}
     cv2.imwrite(str(out / "image.png"), img)
+    if not gt_svg and keep.get("display") is not None and max(keep["display"].shape[:2]) > max(img.shape[:2]):
+        save_display(keep["display"], out)   # только если исходник крупнее картинки разбора
     sc = Scene.build("image.png", w, h, dets, source=source,
                      meta={"source_image": image.name, "model": model, **info})
     # масштаб: один вызов VLM на план (подписи площадей / линейная шкала), см. fp/scale.py
@@ -171,6 +174,16 @@ def run(image: Path, out: Path, model: str | None = None, gt_svg: Path | None = 
         analyze_sheet(img if img.ndim == 3 else cv2.cvtColor(img, cv2.COLOR_GRAY2BGR), sc, full=full, f=f)
     sc.save(out)
     return sc
+
+
+def save_display(img: np.ndarray, out: Path) -> None:
+    """Копия листа для показа в интерфейсе (image_hd.png): разбор и координаты — по image.png (2048 px),
+    а на экране крупный лист с мелкими подписями в 2048 px нечитаем. Чертёж без цвета — в оттенках серого
+    (8192 px школы: 1.1 МБ)."""
+    small = img[::8, ::8].astype(np.int16) if img.ndim == 3 else None   # цвет проверяем по прореженной копии
+    if small is not None and int(np.abs(small - small.mean(axis=2, keepdims=True)).max()) <= 8:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    cv2.imwrite(str(out / "image_hd.png"), img)
 
 
 def drop_outside_drawing(sc: Scene, bbox, pad: float = 0.02, max_frac: float | None = 0.3) -> int:
@@ -310,9 +323,12 @@ def analyze_sheet(img: np.ndarray, sc: Scene, full: np.ndarray | None = None, f:
         add_glazing_windows(img, sc)
     # лист трубопроводов: подписи диаметров и марки (ИИ), трубы по линиям (fp.piping)
     title = str(tb.get("drawing_title") or "").upper()
-    if (est.get("px_per_m") or 0) >= ARC_MIN_PPM and drawing_sheet and \
-            ("PIPING" in title or "PIPE" in title or str(tb.get("sheet_number") or "").upper().startswith(("M", "P"))):
-        add_piping(img, sc)
+    if drawing_sheet and ("PIPING" in title or "PIPE" in title or str(tb.get("sheet_number") or "").upper().startswith(("M", "P"))):
+        if (est.get("px_per_m") or 0) >= ARC_MIN_PPM:
+            add_piping(img, sc)
+        else:  # причина пропуска — чтобы чат не принял такую сцену за разобранную старой версией
+            sc.meta["piping"] = {"error": f"масштаб {est.get('px_per_m') or 0:.1f} px/м мельче {ARC_MIN_PPM:g}: "
+                                          "двойные линии труб не различить"}
     # помещения: площади и плинтусы (подписи + заливка по стенам + контуры модели)
     from .spaces import build as build_spaces
     build_spaces(img, sc)
@@ -405,6 +421,9 @@ def rooms_by_walls(img: np.ndarray, sc: Scene, sheet: dict) -> list[dict]:
         return []
     keep.sort(key=lambda r: reading_key(r["polygon"], sc.height))
     sc.meta["yolo_rooms_replaced"] = [r.id for r in sc.rooms]
+    # контуры модели остаются нужны как стены: рамки ИИ меняются от запуска к запуску (бывает одна рамка на всё
+    # здание), а без перегородок стены туалета и кладовой на листе трубопроводов принимаются за трубы
+    sc.meta["yolo_room_polygons"] = [[[round(x, 1), round(y, 1)] for x, y in r.polygon] for r in sc.rooms]
     counters: dict = {}
     sc.rooms = []
     for r in keep:

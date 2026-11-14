@@ -78,11 +78,74 @@ def _single_lines(gray, ppm, region):
     return out
 
 
-def _not_outline(singles, segs, rooms):
+ENVELOPE_MIN_M = 1.0  # наружная стена — длинная; короткие участки у контура (трубы на выходе из здания) не трогаем
+
+
+def _exterior(gray, region) -> np.ndarray | None:
+    """Улица вокруг здания: заливка свободного листа от краёв рамки чертежа. Стены, окна и дуги дверей —
+    преграда; если заливка всё же затекла внутрь через проём, улица с обеих сторон у всех линий и
+    фильтр наружных стен ничего не убирает (безопасный отказ)."""
+    if not region or len(region) != 4:
+        return None
+    bar = cv2.dilate((gray < 200).astype(np.uint8), np.ones((3, 3), np.uint8))
+    h, w = bar.shape
+    x0, y0, x1, y1 = (int(v) for v in region)
+    x0, y0, x1, y1 = max(0, x0), max(0, y0), min(w - 1, x1), min(h - 1, y1)
+    if x1 - x0 < 10 or y1 - y0 < 10:
+        return None
+    mask = np.zeros((h + 2, w + 2), np.uint8)
+    edge = [(x, y0) for x in range(x0, x1, 5)] + [(x, y1) for x in range(x0, x1, 5)] + \
+           [(x0, y) for y in range(y0, y1, 5)] + [(x1, y) for y in range(y0, y1, 5)]
+    for x, y in edge:
+        if bar[y, x] == 0 and mask[y + 1, x + 1] == 0:
+            cv2.floodFill(bar, mask, (x, y), 2, flags=4 | (255 << 8) | cv2.FLOODFILL_MASK_ONLY)
+    return mask[1:-1, 1:-1] > 0
+
+
+def _outside_frac(s, ext: np.ndarray, off: int = 4) -> tuple[float, float]:
+    """Доля улицы вдоль обеих сторон участка (на off px за его кромками)."""
+    h, w = ext.shape
+    a = np.arange(s["a0"], s["a1"] + 1, 3)
+    out = []
+    for c in (s["c"] - s["width_px"] / 2 - off, s["c"] + s["width_px"] / 2 + off):
+        c = int(round(c))
+        if s["axis"] == "h":
+            v = ext[c, np.clip(a, 0, w - 1)] if 0 <= c < h else np.zeros(1)
+        else:
+            v = ext[np.clip(a, 0, h - 1), c] if 0 <= c < w else np.zeros(1)
+        out.append(float(v.mean()))
+    return out[0], out[1]
+
+
+def _not_envelope(segs, ext, ppm):
+    """Наружная стена здания: с одной стороны улица, с другой — нет (M-101A: верх здания принимался за трубу 2"
+    на 23 м). Труба снаружи здания — улица с обеих сторон, внутри — ни с одной."""
+    if ext is None:
+        return segs
+    out = []
+    for s in segs:
+        if s["length_m"] >= ENVELOPE_MIN_M:
+            a, b = _outside_frac(s, ext)
+            if (a >= 0.6 and b <= 0.1) or (b >= 0.6 and a <= 0.1):
+                continue
+        out.append(s)
+    return out
+
+
+def _wall_lines(sc):
+    """Границы помещений как линии стен: текущие помещения сцены и контуры модели, которые заменили
+    помещения по стенам (meta.yolo_room_polygons) — перегородки, которых нет в рамках ИИ."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    shapes = [r.shape() for r in sc.rooms]
+    shapes += [Polygon(p).buffer(0) for p in sc.meta.get("yolo_room_polygons") or [] if len(p) >= 3]
+    shapes = [s for s in shapes if not s.is_empty]
+    return unary_union([s.boundary for s in shapes]) if shapes else None
+
+
+def _not_outline(singles, segs, walls):
     """Одиночные линии, которые не кромка двойной трубы и не граница помещения (стена)."""
     from shapely.geometry import LineString
-    from shapely.ops import unary_union
-    walls = unary_union([r.shape().boundary for r in rooms]) if rooms else None
     out = []
     for s in singles:
         edge = False
@@ -102,13 +165,11 @@ def _not_outline(singles, segs, rooms):
     return out
 
 
-def _not_walls(segs, rooms):
+def _not_walls(segs, walls):
     """Двойная пара вдоль границы помещения — это стена из двух тонких линий, а не труба."""
     from shapely.geometry import LineString
-    from shapely.ops import unary_union
-    if not rooms:
+    if walls is None:
         return segs
-    walls = unary_union([r.shape().boundary for r in rooms])
     out = []
     for s in segs:
         ln = LineString(_seg_end_pts(s))
@@ -123,8 +184,10 @@ def build(img: np.ndarray, sc, items: list[dict]) -> dict:
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
     ppm = sc.meta["px_per_m"]
     region = (sc.meta.get("sheet") or {}).get("drawing_bbox")
-    segs = _not_walls(find_pipes(gray, ppm, region), sc.rooms)
-    singles = _not_outline(_single_lines(gray, ppm, region), segs, sc.rooms)
+    walls = _wall_lines(sc)
+    ext = _exterior(gray, region)
+    segs = _not_envelope(_not_walls(find_pipes(gray, ppm, region), walls), ext, ppm)
+    singles = _not_envelope(_not_outline(_single_lines(gray, ppm, region), segs, walls), ext, ppm)
     for i, s in enumerate(segs):
         s["id"] = f"pd{i + 1}"
     for i, s in enumerate(singles):

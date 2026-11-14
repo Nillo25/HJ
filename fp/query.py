@@ -493,13 +493,25 @@ def rooms(scene: Scene, name: str | None = None) -> Answer:
                   "; ".join(notes) or None, action="highlight")
 
 
+def _no_piping(scene: Scene) -> str:
+    """Почему на сцене нет труб: ошибка разбора, сцена старше разбора трубопроводов или лист не трубопроводов."""
+    p = scene.meta.get("piping")
+    if p and p.get("error"):
+        return f"трубы на этом листе разобрать не удалось: {p['error']}"
+    tb = (scene.meta.get("sheet") or {}).get("title_block") or {}
+    title, num = str(tb.get("drawing_title") or "").upper(), str(tb.get("sheet_number") or "")
+    if "PIP" in title or num.upper().startswith(("M", "P")):
+        return (f"лист {num or ''} — трубопроводы, но эта сцена разобрана старой версией, до разбора труб; "
+                "разберите план заново (кнопка «Разобрать заново» или повторная загрузка файла)").replace("лист  —", "лист —")
+    return "на этом листе трубы не разбирались: это не лист трубопроводов"
+
+
 def pipes(scene: Scene, size: float | None = None) -> Answer:
     """Длина труб по диаметрам (лист трубопроводов, fp/piping.py): по подписям диаметров на листе.
     size — диаметр в дюймах; без него — все диаметры."""
     p = scene.meta.get("piping")
     if not p or p.get("error"):
-        return Answer(None, confidence="low", score=0.3,
-                      note=(p or {}).get("error") or "на этом листе трубы не разбирались (это не лист трубопроводов)")
+        return Answer(None, confidence="low", score=0.3, note=_no_piping(scene))
     by = {float(k): v for k, v in p["by_size_m"].items()}
     segs = p["segments"]
     if size is not None:
@@ -524,7 +536,7 @@ def fittings(scene: Scene, tag: str | None = None) -> Answer:
     """Арматура, приборы, опоры и оборудование по маркам листа трубопроводов (CV, FSCV, PG, MAV, PS…)."""
     p = scene.meta.get("piping")
     if not p or p.get("error"):
-        return Answer(None, confidence="low", score=0.3, note="на этом листе трубы не разбирались")
+        return Answer(None, confidence="low", score=0.3, note=_no_piping(scene))
     fs = p["fittings"]
     if tag:
         t = tag.upper().rstrip("S") if len(tag) > 2 else tag.upper()

@@ -27,8 +27,13 @@ def estimate_skew(gray: np.ndarray, max_angle: float = 10.0) -> float:
     return float(np.median(angles)) if angles else 0.0
 
 
-def preprocess(img: np.ndarray, max_side: int = 2048, margin: int = 16) -> tuple[np.ndarray, dict]:
-    """Возвращает (BGR картинка, инфо о преобразованиях)."""
+DISPLAY_SIDE = 8192  # копия для показа: подписи на крупных листах (школа 14000 px) читаются, разбор — на max_side
+
+
+def preprocess(img: np.ndarray, max_side: int = 2048, margin: int = 16,
+               keep: dict | None = None) -> tuple[np.ndarray, dict]:
+    """Возвращает (BGR картинка, инфо о преобразованиях). keep — если передан, в keep["display"] кладётся
+    та же картинка (поворот, обрезка, контраст) в высоком разрешении, до DISPLAY_SIDE по длинной стороне."""
     if img.ndim == 2:
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     elif img.shape[2] == 4:  # прозрачный фон -> белый
@@ -57,6 +62,9 @@ def preprocess(img: np.ndarray, max_side: int = 2048, margin: int = 16) -> tuple
     lab[:, :, 0] = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(lab[:, :, 0])
     img = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
+    if keep is not None:
+        d = min(1.0, DISPLAY_SIDE / max(img.shape[:2]))
+        keep["display"] = cv2.resize(img, None, fx=d, fy=d, interpolation=cv2.INTER_AREA) if d < 1 else img.copy()
     s = max_side / max(img.shape[:2])
     if s < 1:
         img = cv2.resize(img, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)

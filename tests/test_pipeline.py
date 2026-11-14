@@ -132,6 +132,25 @@ def test_preprocess_runs_on_skewed(synth):
     assert out.ndim == 3 and max(out.shape[:2]) <= 2048
 
 
+def test_display_copy_is_sharper_with_same_crop(tmp_path):
+    """Школа: исходник 14000 px, разбор на 2048 px — для показа отдельная копия крупнее, с той же обрезкой."""
+    import cv2
+    import numpy as np
+    from fp.infer import save_display
+    from fp.preprocess import preprocess
+    img = np.full((3000, 6000, 3), 255, np.uint8)
+    cv2.rectangle(img, (500, 400), (5500, 2600), (0, 0, 0), 6)
+    cv2.putText(img, "Group Room", (2000, 1500), 0, 2.0, (0, 0, 0), 3)
+    keep: dict = {}
+    out, info = preprocess(img, keep=keep)
+    hd = keep["display"]
+    assert max(out.shape[:2]) == 2048 and hd.shape[1] > 2 * out.shape[1]
+    assert abs(hd.shape[1] / hd.shape[0] - out.shape[1] / out.shape[0]) < 0.01      # та же обрезка
+    save_display(hd, tmp_path)
+    saved = cv2.imread(str(tmp_path / "image_hd.png"), cv2.IMREAD_UNCHANGED)
+    assert saved.ndim == 2 and saved.shape == hd.shape[:2]                          # без цвета — серый
+
+
 def test_fixture_transform_and_rect_fallback():
     svg = b'''<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50"><g transform="matrix(1,0,0,1,0,0)">
     <g class="FixedFurniture Toilet" transform="matrix(1,0,0,1,100,200)"><g class="BoundaryPolygon"><polygon points="0,0 40,0 40,70 0,70"/></g></g>
@@ -730,6 +749,71 @@ def test_piping_lengths_by_label_and_fittings_by_tag():
     f = fittings(sc).answer
     assert f["CV"]["count"] == 2 and f["PG"]["count"] == 1 and f["PS"]["count"] == 2
     assert fittings(sc, "valve").answer.keys() == {"CV"}
+
+
+def test_partition_from_model_rooms_is_not_a_pipe():
+    """M-101A: ИИ дал одну рамку на всё здание, перегородки туалета известны только по контурам модели
+    (meta.yolo_room_polygons) — их двойные линии не трубы, даже если выноска подписи ближе к ним."""
+    import cv2
+    import numpy as np
+    from fp.piping import build
+    from fp.scene import Scene
+    img = np.full((400, 800, 3), 255, np.uint8)
+    for x in (300, 311):                                  # перегородка: две линии через 11 px
+        cv2.line(img, (x, 60), (x, 380), (0, 0, 0), 1)
+    for x in (500, 511):                                  # труба 8" в зале
+        cv2.line(img, (x, 60), (x, 380), (0, 0, 0), 1)
+    big = [(20, 45), (780, 45), (780, 390), (20, 390)]
+    items = [{"text": '8"', "kind": "pipe_size", "size_in": 8, "x": 400, "y": 200, "target_x": 306, "target_y": 200},
+             {"text": '8"', "kind": "pipe_size", "size_in": 8, "x": 600, "y": 200, "target_x": 505, "target_y": 200}]
+    sc = Scene.build("x", 800, 400, [("room_other", big, 0.6)], meta={"px_per_m": 50.0})
+    assert build(img, sc, items)["by_size_m"]["8"] > 12          # без контуров модели перегородка — «труба»
+    sc.meta["yolo_room_polygons"] = [[[20, 45], [300, 45], [300, 390], [20, 390]],
+                                     [[311, 45], [780, 45], [780, 390], [311, 390]]]
+    p = build(img, sc, items)
+    assert abs(p["by_size_m"]["8"] - 6.4) <= 0.3                 # только труба: 320 px / 50
+    assert all(s["bbox"][0] > 400 for s in p["segments"])
+
+
+def test_exterior_wall_is_not_a_pipe():
+    """M-101A: выноска «2" FILTER SEPARATOR…» легла на наружную стену — стена (улица с одной стороны) не труба;
+    труба снаружи здания (улица с обеих сторон) и внутри (ни с одной) остаются."""
+    import cv2
+    import numpy as np
+    from fp.piping import build
+    from fp.scene import Scene
+    img = np.full((500, 900, 3), 255, np.uint8)
+    for d in (0, 4):                                        # наружная стена из двух линий через 4 px
+        cv2.rectangle(img, (100 - d, 100 - d), (700 + d, 400 + d), (0, 0, 0), 1)
+    for y in (200, 210):                                    # труба внутри здания
+        cv2.line(img, (200, y), (600, y), (0, 0, 0), 1)
+    for x in (800, 810):                                    # труба снаружи, вдоль здания
+        cv2.line(img, (x, 120), (x, 380), (0, 0, 0), 1)
+    items = [{"text": '2"', "kind": "pipe_size", "size_in": 2, "x": 400, "y": 60, "target_x": 400, "target_y": 98},
+             {"text": '8"', "kind": "pipe_size", "size_in": 8, "x": 400, "y": 250, "target_x": 400, "target_y": 205},
+             {"text": '8"', "kind": "pipe_size", "size_in": 8, "x": 850, "y": 250, "target_x": 805, "target_y": 250}]
+    sc = Scene.build("x", 900, 500, [], meta={"px_per_m": 50.0, "sheet": {"drawing_bbox": [20, 20, 880, 480]}})
+    p = build(img, sc, items)
+    assert "2" not in p["by_size_m"] or p["by_size_m"]["2"] == 0     # стена не стала трубой 2"
+    assert abs(p["by_size_m"]["8"] - 13.2) <= 0.4                    # 400 + 260 px = 13.2 м: обе трубы на месте
+
+
+def test_no_piping_explains_why():
+    """Старая сцена листа трубопроводов (без meta.piping) — не «это не лист трубопроводов», а «разберите заново»."""
+    from fp.query import fittings, pipes
+    from fp.scene import Scene
+    piping_sheet = {"title_block": {"drawing_title": "PIPING PLAN", "sheet_number": "M-101A"}}
+    old = Scene.build("x", 10, 10, [], meta={"sheet": piping_sheet})
+    assert "заново" in pipes(old).note and "не лист" not in pipes(old).note
+    assert "заново" in fittings(old, "CV").note
+    from fp.chat import chat
+    reply = chat(old, "покажи трубы", use_llm=False)["reply"]
+    assert reply.startswith("Лист M-101A") and "null" not in reply
+    small = Scene.build("x", 10, 10, [], meta={"sheet": piping_sheet, "piping": {"error": "масштаб 9.9 px/м мельче 33"}})
+    assert "масштаб" in pipes(small).note
+    plan = Scene.build("x", 10, 10, [], meta={"sheet": {"title_block": {"drawing_title": "FLOOR PLAN",
+                                                                         "sheet_number": "A-2"}}})
+    assert "не лист трубопроводов" in pipes(plan).note
 
 
 def test_scene_save_handles_numpy_values(tmp_path):

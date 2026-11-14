@@ -197,6 +197,8 @@ def _format(name: str, args: dict, a: Answer, lang: str = "ru") -> str:
                      + (f" (на плане подписано {r['label_m2']} м²)" if r.get("label_m2") else "")
                      for r in a.answer]
             txt = "Площадь — " + "; ".join(parts) + f".{conf}"
+    elif a.answer is None and a.note:  # ответа нет — только объяснение почему, без «null»
+        return a.note[:1].upper() + a.note[1:] + "."
     else:
         txt = json.dumps(a.answer, ensure_ascii=False)
     if a.note:
