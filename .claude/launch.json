@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {"name": "floorplan", "runtimeExecutable": "/Users/nillo25/Desktop/Новая папка 7/.venv/bin/python", "runtimeArgs": ["-m", "uvicorn", "server.app:app", "--app-dir", "/Users/nillo25/Desktop/Новая папка 7", "--port", "8000"], "port": 8000}
+  ]
+}

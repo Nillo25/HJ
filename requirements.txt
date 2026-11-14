@@ -1,0 +1,14 @@
+ultralytics>=8.3
+opencv-python-headless
+shapely>=2
+lxml
+fastapi
+uvicorn[standard]
+python-multipart
+anthropic>=2.8
+pytest
+httpx
+scipy
+scikit-image
+# только для scripts/compare_models.py (готовая модель CubiCasa):
+# lmdb svgpathtools

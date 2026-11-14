@@ -1,0 +1,102 @@
+{
+ "_note": "подобрано scripts/tune_thresholds.py на val (CubiCasa5K) для модели v2 (runs/colab/v2_best.pt, 5-я эпоха); после смены модели — перезапустить tune",
+ "default": {
+  "conf": 0.25,
+  "merge": null
+ },
+ "bathtub": {
+  "conf": 0.25,
+  "merge": null,
+  "high_minconf": 0.0,
+  "medium_max_near": 0
+ },
+ "door": {
+  "conf": 0.35,
+  "merge": 0.1,
+  "high_minconf": null,
+  "medium_max_near": 0
+ },
+ "room_bath": {
+  "conf": 0.45,
+  "merge": 0.1,
+  "high_minconf": null,
+  "medium_max_near": 0
+ },
+ "room_bedroom": {
+  "conf": 0.45,
+  "merge": null,
+  "high_minconf": 0.8,
+  "medium_max_near": 0
+ },
+ "room_entry": {
+  "conf": 0.2,
+  "merge": 0.1,
+  "high_minconf": 0.8,
+  "medium_max_near": 1
+ },
+ "room_kitchen": {
+  "conf": 0.25,
+  "merge": 0.1,
+  "high_minconf": 0.5,
+  "medium_max_near": 0
+ },
+ "room_living": {
+  "conf": 0.4,
+  "merge": null,
+  "high_minconf": 0.8,
+  "medium_max_near": 0
+ },
+ "room_other": {
+  "conf": 0.25,
+  "merge": null,
+  "high_minconf": null,
+  "medium_max_near": 0
+ },
+ "room_outdoor": {
+  "conf": 0.25,
+  "merge": 0.1,
+  "high_minconf": 0.8,
+  "medium_max_near": 0
+ },
+ "room_storage": {
+  "conf": 0.55,
+  "merge": 0.3,
+  "high_minconf": 0.9,
+  "medium_max_near": 0
+ },
+ "sauna_bench": {
+  "conf": 0.5,
+  "merge": 0.3,
+  "high_minconf": 0.0,
+  "medium_max_near": 0
+ },
+ "shower": {
+  "conf": 0.25,
+  "merge": null,
+  "high_minconf": null,
+  "medium_max_near": 0
+ },
+ "sink": {
+  "conf": 0.5,
+  "merge": 0.1,
+  "high_minconf": null,
+  "medium_max_near": 0
+ },
+ "toilet": {
+  "conf": 0.25,
+  "merge": null,
+  "high_minconf": 0.0,
+  "medium_max_near": 0
+ },
+ "window": {
+  "conf": 0.45,
+  "merge": 0.3,
+  "high_minconf": 0.8,
+  "medium_max_near": 0
+ },
+ "_calibration": {
+  "near_margin": 0.15,
+  "high_target": 0.9,
+  "medium_target": 0.7
+ }
+}
