@@ -21,6 +21,8 @@ import numpy as np
 VERIFY_MODEL = os.environ.get("FP_DOOR_VERIFY_MODEL", "claude-opus-5-5")
 PRICES = {"claude-haiku-5-5": (0.10, 0.50), "claude-sonnet-5-5": (2.0, 10.0), "claude-opus-5-5": (4.0, 20.0)}
 CAND_CONF = 0.15
+ARC_WORK_PPM = 50.0  # дуги ищутся не крупнее 50 px/м: на школе 14000 px — 28 с -> 5 с, покрытие дверей 21/26 -> 22/26
+WORKERS = 4          # пачки вырезок проверяются параллельно
 DEDUP_M = 0.8
 CROP_M = 3.0
 CROP_PX = 320
@@ -59,7 +61,7 @@ def candidates(full: np.ndarray, ppm_full: float, model: str, yolo: list[dict] |
         m = int(1.5 * ppm_full)
         ox, oy = max(0, int(region[0]) - m), max(0, int(region[1]) - m)
         gray = gray[oy:int(region[3]) + m, ox:int(region[2]) + m]
-    s = min(1.0, 80.0 / ppm_full)
+    s = min(1.0, ARC_WORK_PPM / ppm_full)
     g = cv2.resize(gray, None, fx=s, fy=s, interpolation=cv2.INTER_AREA) if s < 1 else gray
     for a in find_door_arcs(g, ppm_full * s, None, None):
         b = np.array(a["bbox"], dtype=float) / s + (ox, oy, ox, oy)
@@ -97,8 +99,7 @@ def verify(full: np.ndarray, cands: list[dict], ppm_full: float) -> tuple[list[d
     client = anthropic.Anthropic()
     pin, pout = PRICES.get(VERIFY_MODEL, (4.0, 20.0))
     cost = 0.0
-    for i in range(0, len(cands), BATCH):
-        part = cands[i:i + BATCH]
+    def run(part):
         content = []
         for n, c in enumerate(part, 1):
             content += [{"type": "text", "text": f"Crop {n}:"},
@@ -111,16 +112,21 @@ def verify(full: np.ndarray, cands: list[dict], ppm_full: float) -> tuple[list[d
             r = client.messages.create(**kw)
         else:  # отказ классификатора -> серверный fallback (как в fp/inventory.py)
             r = client.beta.messages.create(**kw, betas=["server-side-fallback-2026-07-01"], fallbacks="default")
-        cost += (r.usage.input_tokens * pin + r.usage.output_tokens * pout) / 1e6
+        c_usd = (r.usage.input_tokens * pin + r.usage.output_tokens * pout) / 1e6
         if r.stop_reason == "refusal":
             for c in part:
-                c["door"], c["leaves"] = True, 1  # не знаем — оставляем кандидата, уверенность ниже
-                c["unverified"] = True
-            continue
+                c["door"], c["leaves"], c["unverified"] = True, 1, True  # не знаем — оставляем, уверенность ниже
+            return c_usd
         ans = {a["crop"]: a for a in json.loads(next(b.text for b in r.content if b.type == "text"))["crops"]}
         for n, c in enumerate(part, 1):
             a = ans.get(n, {"door": False, "leaves": 0})
             c["door"], c["leaves"] = bool(a["door"]), int(a["leaves"])
+        return c_usd
+
+    from concurrent.futures import ThreadPoolExecutor
+    parts = [cands[i:i + BATCH] for i in range(0, len(cands), BATCH)]
+    with ThreadPoolExecutor(WORKERS) as ex:
+        cost = sum(ex.map(run, parts))
     return cands, cost
 
 

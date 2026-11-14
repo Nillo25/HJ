@@ -296,6 +296,9 @@ def analyze_sheet(img: np.ndarray, sc: Scene, full: np.ndarray | None = None, f:
     if est.get("px_per_m") and drawing_sheet and os.environ.get("FP_TILES", "1") != "0" and sc.meta.get("model"):
         from .tiles import retile
         sc.meta["tiles"] = retile(sc, full_img, ff, sc.meta["model"])
+        # та же отсечка вне рамки чертежа, что и для прохода по целому листу (штамп, схема сбоку)
+        if tb.get("sheet_number"):
+            drop_outside_drawing(sc, sheet.get("drawing_bbox"), max_frac=None)
     if (est.get("px_per_m") or 0) >= WALL_ROOMS_MIN_PPM and tb.get("sheet_number") and not sheet.get("area_labels"):
         rooms_by_walls(img, sc, sheet)
     # чертёжный лист (номер вида M-101A, A-2, C01): двери ещё и по дугам открывания — модель обучена на квартирах

@@ -86,8 +86,18 @@ def retile(sc, full: np.ndarray, f: float, model: str) -> dict:
     th = _json.loads(_json.dumps(THRESHOLDS))
     door_thr = th["door"]["conf"]
     th["door"]["conf"] = CAND_CONF  # один проход: уверенные двери -> сцена, остальные -> кандидаты для проверки ИИ
+    # только рамка чертежа (+ запас): штамп, легенда, ключевая схема сбоку листа — не план; их объекты
+    # убирает drop_outside_drawing до этого шага, и тайлы не должны возвращать их обратно (заодно быстрее)
+    ox = oy = 0
+    bb = (sc.meta.get("sheet") or {}).get("drawing_bbox")
+    if bb and len(bb) == 4:
+        mg = int(MARGIN_M * ppm_full)
+        ox, oy = max(0, int(bb[0] / f) - mg), max(0, int(bb[1] / f) - mg)
+        full = full[oy:int(bb[3] / f) + mg, ox:int(bb[2] / f) + mg]
     cands: list = []
-    dets_all = detect_tiles(full, ppm_full, model, thresholds=th, candidates=cands)
+    dets_all = [(c, p + (ox, oy), conf) for c, p, conf in
+                detect_tiles(full, ppm_full, model, thresholds=th, candidates=cands)]
+    cands = [[c, conf, x + ox, y + oy] for c, conf, x, y in cands]
     sc.door_candidates = [{"c": p.mean(0).tolist(), "box": [*p.min(0), *p.max(0)], "src": "yolo", "conf": float(c)}
                           for cls, p, c in dets_all if cls == "door"]
     dets = [d for d in dets_all if d[0] != "door" or d[2] >= door_thr]
@@ -100,6 +110,6 @@ def retile(sc, full: np.ndarray, f: float, model: str) -> dict:
         sc.objects.append(Element(f"{PREFIX.get(cls, cls)}t{counters[cls]}", cls, pts, float(conf), source="yolo"))
     sc.assign_rooms()
     sc.meta["candidates"] = [[c, conf, round(x * f, 1), round(y * f, 1)] for c, conf, x, y in cands]
-    return {"done": True, "ppm_full": round(ppm_full, 1), "tile_ppm": TILE_PPM,
+    return {"done": True, "ppm_full": round(ppm_full, 1), "tile_ppm": TILE_PPM, "region_full": [ox, oy, ox + full.shape[1], oy + full.shape[0]],
             "before": {c: sum(o.cls == c for o in old) for c in sorted(TILE_CLASSES)},
             "after": {c: counters.get(c, 0) for c in sorted(TILE_CLASSES)}}
