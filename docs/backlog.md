@@ -36,7 +36,7 @@ deduplication). Order is by value for the demo.
 
 ## Product
 
-10. Accuracy panel in the UI. `/api/eval/latest` exists; the page does not.
+10. (removed) the accuracy panel in the UI and `/api/eval/latest`: the numbers stay in `server/accuracy.json` and the README.
 11. `needs_clarification` flow: defined, never returned.
 12. Plan overlay on the PNG/PDF (needs DXF-to-pixel registration).
 13. Usage totals persist across restarts; count failed model calls.

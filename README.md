@@ -119,7 +119,7 @@ Tests of the adapter: `server/test/raster.test.ts`.
 
     indexer/   index.py answer.py ask_cli.py  parse_{dxf,ifc,pdf}.py  render_dxf.py  ifc_geom.py ifc_facts.py
                footprint.py group.py labels.py dict/ (label dictionaries per language)  eval.py bench.py schema.sql
-    server/    src/{index,ask,db,usage,py,limits,raster}.ts  test/  accuracy.json (last benchmark, shown in the UI)
+    server/    src/{index,ask,db,usage,py,limits,raster}.ts  test/  accuracy.json (last benchmark of indexer/bench.py)
     raster/    the floor-plan service for PNG (colleagues' project: fp/ YOLO pipeline, FastAPI, its own README and tests)
     web/       src/{App.tsx, components/, lib/}  (PlanViewer DXF/IFC plan, IfcViewer 3D, PdfViewer, FilePanel ...)
     docs/      adr/  contract.md  brief.md  backlog.md  knowledge.md

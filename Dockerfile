@@ -43,7 +43,6 @@ COPY --from=server /app/server/node_modules ./server/node_modules
 COPY --from=server /app/server/dist ./server/dist
 COPY --from=server /app/server/package.json ./server/package.json
 COPY --from=web /app/server/public ./server/public
-COPY server/accuracy.json ./server/accuracy.json
 # files copied from a laptop can be mode 600: the app runs as "node", so everything must be readable
 RUN chmod -R a+rX /app && /opt/venv/bin/python -m compileall -q /app/indexer \
     && mkdir -p /data && chown -R node:node /data

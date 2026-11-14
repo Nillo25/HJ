@@ -1,6 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { ask, getDrawing, type Answer, type Drawing, type Part } from './lib/api';
-import { AccuracyPanel } from './components/AccuracyPanel';
 import { AnswerCard } from './components/AnswerCard';
 import { EvidenceTable } from './components/EvidenceTable';
 import { FilePanel } from './components/FilePanel';
@@ -134,7 +133,6 @@ export default function App() {
               </CardBody>
             </Card>
           )}
-          {!answer && <AccuracyPanel />}
         </div>
       </div>
     </div>
