@@ -7,6 +7,7 @@ import os
 import re
 import time
 
+from . import cache
 from .classes import LABELS_RU, SYNONYMS
 from .query import TOOLS, Answer, call
 from .scene import Scene
@@ -79,7 +80,54 @@ def parse_rule(message: str) -> tuple[str, dict] | None:
     return None
 
 
-def _format(name: str, args: dict, a: Answer) -> str:
+def _lang(message: str) -> str | None:
+    """Язык ответа для шаблона: ru, en или None (другой язык — шаблоном не отвечаем, только LLM)."""
+    if re.search(r"[а-яё]", message.lower()):
+        return "ru"
+    words = set(re.findall(r"[a-z]+", message.lower()))
+    if re.fullmatch(r"[\x00-\x7f]*", message) and words & {
+            "how", "many", "what", "where", "which", "show", "highlight", "count", "list", "the", "is", "are",
+            "area", "rooms", "room", "find", "mark", "total", "number", "clear", "legend", "sheet", "there"}:
+        return "en"
+    return None
+
+
+def _format_en(name: str, args: dict, a: Answer) -> str:
+    conf = {"high": "", "medium": " (medium confidence)", "low": " (low confidence - please check on the plan)"}[a.confidence]
+    what = (args.get("cls") or "").replace("room_", "").replace("_", " ")
+    where = f" in {args['room']}" if args.get("room") else ""
+    if name == "clear":
+        return "Highlighting cleared."
+    if name in ("highlight", "count"):
+        return f"{'Highlighted' if name == 'highlight' else 'Found'} {what}{where}: {a.answer}.{conf}"
+    if name == "list_rooms":
+        return f"Rooms: {', '.join(r['id'] for r in a.answer) or 'none found'}.{conf}"
+    if name == "objects_in":
+        items = ", ".join(f"{k.replace('_', ' ')}: {v}" for k, v in a.answer.items()) if a.answer else "nothing"
+        return f"In {args['room']}: {items}.{conf}"
+    if name == "legend" and isinstance(a.answer, dict) and "tables" in a.answer:
+        tb = a.answer.get("title_block") or {}
+        head = " · ".join(v for v in (tb.get("drawing_title"), tb.get("sheet_number"), tb.get("project")) if v)
+        leg = "; ".join(f"{x['label']} (on plan: {x['zones_on_plan']})" for x in a.answer["legend"]) or "none"
+        tabs = "; ".join(f"{t['title']}: {len(t['rows'])} rows" for t in a.answer["tables"]) or "none"
+        return f"Sheet: {head or '-'}. Scale: {a.answer.get('scale_text') or '-'}.\nLegend: {leg}.\nTables: {tabs}.{conf}"
+    if name == "rooms" and isinstance(a.answer, dict):
+        lines = [(f"{r['name']}: {r['area_m2']} m²" + (f", baseboard {r['baseboard_m']} m" if r["baseboard_m"] is not None else ""))
+                 if r.get("ok") else f"{r['name']}: not measured" for r in a.answer["rooms"]]
+        tot = a.answer["total"]
+        return "\n".join(lines) + f"\nTotal: {tot['area_m2']} m², baseboard {tot['baseboard_m']} m.{conf}"
+    if name == "area":
+        if not a.answer:
+            return "Room not found."
+        parts = [f"{r['id']}: {r['area_m2']} m²" if r["area_m2"] is not None else f"{r['id']}: {r['area_px2']} px²"
+                 for r in a.answer]
+        return "Area - " + "; ".join(parts) + f".{conf}"
+    return json.dumps(a.answer, ensure_ascii=False)
+
+
+def _format(name: str, args: dict, a: Answer, lang: str = "ru") -> str:
+    if lang == "en":
+        return _format_en(name, args, a)
     conf = {"high": "", "medium": " (уверенность средняя)", "low": " (уверенность низкая — проверьте)"}[a.confidence]
     what = LABELS_RU.get(args.get("cls", ""), "комнаты" if args.get("cls") == "room" else args.get("cls", ""))
     where = f" в {args['room']}" if args.get("room") else ""
@@ -163,10 +211,28 @@ def chat(scene: Scene, message: str, history: list[dict] | None = None, use_llm:
     if rule:
         name, args = rule
         a = call(scene, name, args)
-        return {"reply": _format(name, args, a), "action": _merge_actions([a]), "confidence": _worst([a]),
+        return {"reply": _format(name, args, a, _lang(message) or "ru"), "action": _merge_actions([a]), "confidence": _worst([a]),
                 "calls": [{"tool": name, "args": args, "result": a.to_dict()}],
                 "parsed_by": "cache", "answered_by": "db", "cost_usd": 0.0,
                 "latency_ms": round((time.perf_counter() - t0) * 1000)}
+
+    # кэш: тот же вопрос к той же сцене — готовый ответ; тот же вопрос к другому плану — те же инструменты
+    q = cache.normalize(message)
+    # уточнения («а в спальне?») зависят от предыдущих реплик: не берём из кэша и не кладём в него
+    standalone = not cache.is_followup(q)
+    skey = kind = None
+    if cache.enabled() and standalone:
+        skey, kind = cache.scene_key(scene), cache.scene_kind(scene)
+        hit = cache.get_answer(skey, q)
+        if hit:
+            return {**hit, "parsed_by": "answer_cache", "saved_usd": hit.get("cost_usd", 0.0), "cost_usd": 0.0,
+                    "latency_ms": round((time.perf_counter() - t0) * 1000)}
+        tpl = cache.get_template(kind, q)
+        if tpl:
+            out = _run_template(scene, *tpl)
+            if out:
+                out["latency_ms"] = round((time.perf_counter() - t0) * 1000)
+                return out
 
     if use_llm is None:
         use_llm = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
@@ -177,8 +243,46 @@ def chat(scene: Scene, message: str, history: list[dict] | None = None, use_llm:
                 "action": {"type": "none"}, "confidence": None, "calls": [], "parsed_by": "none",
                 "answered_by": None, "cost_usd": 0.0, "latency_ms": round((time.perf_counter() - t0) * 1000)}
     out = _chat_llm(scene, message, history or [])
+    errors = out.pop("_errors", 0)
+    if skey and out["calls"] and not errors:
+        cache.put_answer(skey, q, out)
+        lang = _lang(message)
+        if lang and _templatable(out["calls"]):
+            cache.put_template(kind, q, [{"tool": c["tool"], "args": c["args"]} for c in out["calls"]], lang)
     out["latency_ms"] = round((time.perf_counter() - t0) * 1000)
     return out
+
+
+_TEMPLATE_TOOLS = {"count", "highlight", "list_rooms", "objects_in", "area", "rooms", "clear", "legend"}
+
+
+def _templatable(calls: list[dict]) -> bool:
+    """Шаблон переносится на другой план, только если аргументы не ссылаются на id этого плана
+    (bedroom_2, sp3, zone1) и у каждого инструмента есть готовая формулировка ответа."""
+    if not 1 <= len(calls) <= 3:
+        return False
+    for c in calls:
+        if c["tool"] not in _TEMPLATE_TOOLS or (c["tool"] == "legend" and c["args"].get("label")):
+            return False
+        if any(isinstance(v, str) and re.fullmatch(r"[a-z]+_?\d+", v) for v in c["args"].values()):
+            return False
+    return True
+
+
+def _run_template(scene: Scene, calls: list[dict], lang: str) -> dict | None:
+    results, done = [], []
+    try:
+        for c in calls:
+            a = call(scene, c["tool"], dict(c["args"]))
+            results.append(a)
+            done.append({"tool": c["tool"], "args": c["args"], "result": a.to_dict()})
+    except Exception:  # noqa: BLE001 — шаблон не подошёл этой сцене, пусть разбирает LLM
+        return None
+    reply = "\n".join(_format(c["tool"], c["args"], a, lang) for c, a in zip(calls, results))
+    if lang == "en" and _worst(results) == "low" and "check" not in reply:
+        reply += " Please check on the plan."
+    return {"reply": reply, "action": _merge_actions(results), "confidence": _worst(results), "calls": done,
+            "parsed_by": "template", "answered_by": "db", "cost_usd": 0.0}
 
 
 def _system_prompt(scene: Scene) -> str:
@@ -219,7 +323,7 @@ def _chat_llm(scene: Scene, message: str, history: list[dict]) -> dict:
     msgs.append({"role": "user", "content": message})
     results: list[Answer] = []
     calls: list[dict] = []
-    tin = tout = 0
+    tin = tout = n_err = 0
     reply = ""
     for _ in range(6):
         kw = dict(model=MODEL, max_tokens=4000, system=_system_prompt(scene), tools=TOOLS, messages=msgs,
@@ -249,11 +353,12 @@ def _chat_llm(scene: Scene, message: str, history: list[dict]) -> dict:
                 content, err = json.dumps(a.to_dict(), ensure_ascii=False), False
             except Exception as e:  # noqa: BLE001 — ошибку отдаём модели
                 content, err = f"Ошибка: {e}", True
+                n_err += 1
             tool_results.append({"type": "tool_result", "tool_use_id": u.id, "content": content, "is_error": err})
         msgs.append({"role": "user", "content": tool_results})
     else:
         reply = reply or "Не уложился в лимит шагов."
     return {"reply": reply, "action": _merge_actions(results), "confidence": _worst(results), "calls": calls,
-            "parsed_by": "llm", "answered_by": "db",
+            "parsed_by": "llm", "answered_by": "db", "_errors": n_err,
             "model": MODEL, "cost_usd": round((tin * PRICES.get(MODEL, (4.0, 20.0))[0]
                                                + tout * PRICES.get(MODEL, (4.0, 20.0))[1]) / 1e6, 6)}

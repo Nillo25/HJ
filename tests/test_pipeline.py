@@ -335,7 +335,7 @@ def test_drop_detections_outside_drawing():
                                        ("door", sq(150, 150, 20), 0.6), ("door", sq(250, 150, 20), 0.6),
                                        ("window", sq(350, 150, 20), 0.6)])
     assert drop_outside_drawing(sc, [0, 0, 800, 600]) == 1          # 1 из 5 — графа штампа справа, убираем
-    assert [r.id for r in sc.rooms] == ["other_1"] and len(sc.objects) == 3
+    assert [r.id for r in sc.rooms] == ["other_2"] and len(sc.objects) == 3   # id по положению: штамп выше
 
 
 def test_drop_outside_drawing_skips_partial_frame():
@@ -345,3 +345,98 @@ def test_drop_outside_drawing_skips_partial_frame():
     sc = Scene.build("x", 1000, 600, [("room_other", sq(100, 100, 100), 0.6), ("room_other", sq(600, 100, 100), 0.6),
                                        ("room_other", sq(800, 100, 100), 0.6)])
     assert drop_outside_drawing(sc, [0, 0, 400, 600]) == 0 and len(sc.rooms) == 3   # рамка вокруг одного этажа
+
+
+def test_ids_follow_reading_order_not_detection_order():
+    from fp.scene import Scene
+    sq = lambda x, y, s: [(x, y), (x + s, y), (x + s, y + s), (x, y + s)]
+    dets = [("door", sq(300, 300, 20), 0.99), ("door", sq(10, 302, 20), 0.5), ("door", sq(200, 10, 20), 0.7),
+            ("window", sq(50, 50, 20), 0.8)]
+    a = Scene.build("x", 500, 500, dets)
+    b = Scene.build("x", 500, 500, list(reversed(dets)))
+    pos = lambda sc: {o.id: tuple(o.polygon[0]) for o in sc.objects}
+    assert pos(a) == pos(b)
+    # d1 — верхняя дверь; d2, d3 — в одной полосе по y (разница 2 px), слева направо
+    assert pos(a)["d1"] == (200, 10) and pos(a)["d2"] == (10, 302) and pos(a)["d3"] == (300, 300)
+
+
+def _fake_llm(monkeypatch, tool_input, text="Found them."):
+    from types import SimpleNamespace as NS
+    import anthropic
+    seen = []
+
+    class FakeMessages:
+        def create(self, **kw):
+            seen.append(kw)
+            usage = NS(input_tokens=1000, output_tokens=50)
+            if len(seen) % 2 == 1:
+                return NS(stop_reason="tool_use", usage=usage, content=[
+                    NS(type="tool_use", id=f"tu{len(seen)}", name=tool_input[0], input=tool_input[1])])
+            return NS(stop_reason="end_turn", usage=usage, content=[NS(type="text", text=text)])
+
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: NS(messages=FakeMessages(), beta=NS(messages=FakeMessages())))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    return seen
+
+
+def test_answer_and_template_cache(monkeypatch, tmp_path):
+    """Повтор вопроса к тому же плану — из кэша ответов; тот же вопрос к другому плану — шаблон без LLM;
+    правка сцены (масштаб) делает старый ответ недействительным."""
+    from fp import cache
+    from fp import chat as chat_mod
+    from fp.scene import Scene
+    sq = lambda x, y, s: [(x, y), (x + s, y), (x + s, y + s), (x, y + s)]
+    cache.configure(tmp_path / "c.sqlite")
+    try:
+        seen = _fake_llm(monkeypatch, ("highlight", {"cls": "window"}))
+        a = Scene.build("x", 500, 500, [("window", sq(10, 10, 20), 0.97), ("window", sq(100, 10, 20), 0.97)])
+        b = Scene.build("x", 500, 500, [("window", sq(10, 10, 20), 0.97)] * 1 + [("window", sq(200, 300, 20), 0.97),
+                                                                                  ("window", sq(300, 300, 20), 0.97)])
+        q = "Mark every window please"
+        first = chat_mod.chat(a, q, [])
+        assert first["parsed_by"] == "llm" and first["cost_usd"] > 0 and len(seen) == 2
+        again = chat_mod.chat(a, "  mark every window please? ", [])
+        assert again["parsed_by"] == "answer_cache" and again["cost_usd"] == 0 and again["reply"] == first["reply"]
+        assert again["saved_usd"] == first["cost_usd"] and len(seen) == 2
+        other = chat_mod.chat(b, q, [])
+        assert other["parsed_by"] == "template" and other["cost_usd"] == 0 and len(seen) == 2
+        assert other["action"]["ids"] == ["win1", "win2", "win3"] and "3" in other["reply"]
+        assert other["reply"].startswith("Highlighted window")       # английский вопрос — английский ответ
+        a.meta["px_per_m"] = 50                                      # сцена изменилась
+        assert chat_mod.chat(a, q, [])["parsed_by"] == "template"
+        # уточнение в диалоге («а в спальне?») зависит от истории — кэшу не доверяем
+        n = len(seen)
+        hist = [{"role": "user", "content": q}, {"role": "assistant", "content": "ok"}]
+        for _ in range(2):
+            assert chat_mod.chat(a, "and in the bedroom", hist)["parsed_by"] == "llm"
+        assert len(seen) == n + 4
+        # самостоятельный вопрос посреди диалога — тоже бесплатно (сцена после масштаба новая -> шаблон)
+        assert chat_mod.chat(a, q, hist)["parsed_by"] == "template" and len(seen) == n + 4
+        st = cache.stats()
+        assert st["template_hits"] == 3 and st["templates"] == 1
+    finally:
+        cache.configure(None)
+
+
+def test_template_not_stored_for_plan_specific_ids(monkeypatch, tmp_path):
+    from fp import cache
+    from fp import chat as chat_mod
+    from fp.scene import Scene
+    sq = lambda x, y, s: [(x, y), (x + s, y), (x + s, y + s), (x, y + s)]
+    cache.configure(tmp_path / "c.sqlite")
+    try:
+        _fake_llm(monkeypatch, ("objects_in", {"room": "bedroom_2"}))
+        sc = Scene.build("x", 500, 500, [("room_bedroom", sq(0, 0, 100), 0.9), ("room_bedroom", sq(200, 0, 100), 0.9)])
+        chat_mod.chat(sc, "what is inside the second bedroom", [])
+        assert cache.stats()["templates"] == 0 and cache.stats()["answers"] == 1
+    finally:
+        cache.configure(None)
+
+
+def test_rule_reply_in_english():
+    from fp.chat import chat
+    from fp.scene import Scene
+    sq = lambda x, y, s: [(x, y), (x + s, y), (x + s, y + s), (x, y + s)]
+    sc = Scene.build("x", 500, 500, [("door", sq(10, 10, 20), 0.97)])
+    out = chat(sc, "how many doors", use_llm=False)
+    assert out["parsed_by"] == "cache" and out["reply"].startswith("Found door: 1")

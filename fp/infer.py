@@ -33,6 +33,9 @@ def simplify(poly: np.ndarray, cls: str) -> list:
     return approx.reshape(-1, 2).tolist() if len(approx) >= 3 else poly.tolist()
 
 
+# менять при правках разбора, влияющих на сцену: повторная загрузка того же файла тогда разберёт его заново
+PIPELINE_VERSION = "2026-11-14.ids"
+
 THRESHOLDS = json.loads((Path(__file__).parent / "thresholds.json").read_text())
 
 
@@ -236,6 +239,8 @@ def analyze_sheet(img: np.ndarray, sc: Scene) -> Scene:
     zones = find_zones(img, legend, region=sheet.get("drawing_bbox"),
                        exclude=[lg["swatch_bbox"] for lg in legend if lg.get("swatch_bbox")])
     sc.meta["zones"] = {}
+    from .scene import reading_key
+    zones.sort(key=lambda z: reading_key(z["polygon"], sc.height))
     for n, z in enumerate(zones, 1):
         zid = f"zone{n}"
         sc.objects.append(Element(zid, "zone", z["polygon"], 0.8, source="legend"))

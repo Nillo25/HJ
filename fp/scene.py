@@ -16,6 +16,15 @@ PREFIX = {"wall": "w", "door": "d", "window": "win", "toilet": "t", "sink": "s",
           "bathtub": "bt", "shower": "sh"}
 
 
+def reading_key(poly, height: float, band_frac: float = 0.02) -> tuple:
+    """Ключ порядка чтения: полоса по y центра (2% высоты листа — чтобы дрожание в пару пикселей
+    не меняло нумерацию), затем x центра, затем y."""
+    xs, ys = [p[0] for p in poly], [p[1] for p in poly]
+    cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    band = max(1.0, band_frac * float(height or 1))
+    return int(cy // band), round(cx, 1), round(cy, 1)
+
+
 @dataclass
 class Element:
     id: str
@@ -46,6 +55,10 @@ class Scene:
               detections: list[tuple[str, list, float]], source: str = "yolo", meta=None) -> "Scene":
         sc = cls(image=image, width=width, height=height, meta=meta or {})
         counters: Counter = Counter()
+        # id не зависят от порядка детекций (он идёт по уверенности и меняется с весами/порогами):
+        # внутри класса — порядок чтения листа, сверху вниз полосами и слева направо
+        detections = sorted((d for d in detections if len(d[1]) >= 3),
+                            key=lambda d: reading_key(d[1], height))
         for c, poly, conf in detections:
             if len(poly) < 3:
                 continue

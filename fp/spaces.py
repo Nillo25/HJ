@@ -18,7 +18,7 @@ import numpy as np
 from shapely.geometry import Point, Polygon
 
 from .rooms_cv import spaces_from_labels
-from .scene import Element, Scene
+from .scene import Element, Scene, reading_key
 
 AGREE = 0.10       # подпись на плане vs геометрия
 AGREE_GEO = 0.15   # заливка vs контур модели: заливка идёт до грани стены, маска модели чуть ужата
@@ -50,6 +50,8 @@ def build(img: np.ndarray, scene: Scene) -> list[dict]:
     px = scene.meta.get("px_per_m")
     sheet = scene.meta.get("sheet") or {}
     labels = [lb for lb in sheet.get("room_labels") or sheet.get("area_labels") or [] if lb.get("text")]
+    # sp1, sp2… — в порядке чтения листа, а не в порядке, в котором ИИ перечислил подписи
+    labels.sort(key=lambda lb: reading_key([[lb["x"], lb["y"]]], scene.height))
     scene.objects = [o for o in scene.objects if o.cls != "space"]
     if not px or not labels:
         scene.meta["spaces"] = []

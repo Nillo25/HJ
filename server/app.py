@@ -4,16 +4,18 @@
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import tempfile
-import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
+from fp import cache as answer_cache
 from fp import infer
 from fp.chat import chat
 from fp.classes import COLORS, LABELS_RU
@@ -40,6 +42,16 @@ MODEL = os.environ.get("FP_MODEL") or (str(_DEFAULT_MODEL) if _DEFAULT_MODEL.exi
 SCENES.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Floor plan MVP")
+answer_cache.configure(SCENES / "cache.sqlite")
+
+
+def _pipeline() -> str:
+    """Отпечаток разбора: веса (имя, размер, время) + пороги + версия кода. Сменился — файл разбирается заново."""
+    parts = [infer.PIPELINE_VERSION, (ROOT / "fp" / "thresholds.json").read_text()]
+    if MODEL and Path(MODEL).exists():
+        st = Path(MODEL).stat()
+        parts.append(f"{Path(MODEL).name}:{st.st_size}:{int(st.st_mtime)}")
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 
 
 def _dir(plan_id: str) -> Path:
@@ -62,28 +74,48 @@ def meta():
             "colors": COLORS, "labels": LABELS_RU}
 
 
+@app.get("/api/cache")
+def cache_stats():
+    return answer_cache.stats()
+
+
 @app.get("/api/plans")
 def plans():
     return sorted(p.name for p in SCENES.iterdir() if (p / "scene.json").exists())
 
 
 @app.post("/api/plans")
-async def upload(file: UploadFile = File(...)):
+async def upload(file: UploadFile = File(...), force: bool = False):
     if not MODEL:
         raise HTTPException(503, "модель не задана: запустите сервер с FP_MODEL=<путь к best.pt>")
     suffix = Path(file.filename or "x.png").suffix.lower()
     if suffix not in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"):
         raise HTTPException(400, "нужна картинка PNG/JPG")
+    data = await file.read()
+    sha = hashlib.sha256(data).hexdigest()
+    pipe = _pipeline()
+    # тот же файл уже разобран той же моделью и порогами — отдаём готовую сцену: повтор бесплатен
+    if not force:
+        for d in sorted(SCENES.glob(f"*-{sha[:10]}")):
+            try:
+                m = json.loads((d / "scene.json").read_text()).get("meta", {})
+            except (OSError, ValueError):
+                continue
+            if m.get("file_sha256") == sha and m.get("pipeline") == pipe:
+                return {"id": d.name, "cached": True}
     stem = re.sub(r"[^\w\-]+", "_", Path(file.filename or "plan").stem)[:40]
-    plan_id = f"{stem}-{uuid.uuid4().hex[:6]}"
+    # id = имя + начало sha256 файла: тот же файл -> тот же id, на любой машине
+    plan_id = next((d.name for d in sorted(SCENES.glob(f"*-{sha[:10]}"))), f"{stem}-{sha[:10]}")
     with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
-        tmp.write(await file.read())
+        tmp.write(data)
         tmp.flush()
         try:
-            infer.run(Path(tmp.name), SCENES / plan_id, model=MODEL)
+            sc = infer.run(Path(tmp.name), SCENES / plan_id, model=MODEL)
         except ValueError as e:
             raise HTTPException(400, str(e))
-    return {"id": plan_id}
+    sc.meta.update(file_sha256=sha, pipeline=pipe, source_image=file.filename or sc.meta.get("source_image"))
+    sc.save(SCENES / plan_id)
+    return {"id": plan_id, "cached": False}
 
 
 @app.get("/api/plans/{plan_id}")
