@@ -246,6 +246,9 @@ language of each question is picked at random. `eval.py` (direct calls, no serve
 - Measured: esplanades 1928 of 1932 drawn (stairs missing), molio 189/189 walls, clinic plumbing 92 of 119
   fixtures; parse 1 to 5 s, up to 420 MB of memory. The UI prints "drawn N of M".
 - Storeys come from `owner`; elements without a storey are not primary and not drawn.
+- DXF: `render_dxf.py` draws the drawing itself (walls from HATCH and polylines, door swings, windows, fixtures, room labels)
+  as `sheet.svg` in metres with Y negated; the plan endpoint returns our shapes in the same space, and only the found
+  objects are drawn over the picture. The first 10/20 pair of a HATCH is its elevation point, not a vertex.
 - PDF: `render_pdf.py` draws lines, rectangles, curves and text of page 1 as SVG (A-801: 0.8 s, 391 KB);
   schedule row bboxes are in PDF space, Y up.
 

@@ -111,8 +111,8 @@ export function PlanViewer({ drawingId, evidence }: { drawingId: string; evidenc
   if (plan === undefined) return <Card><CardBody className="text-sm text-slate-500">Loading plan…</CardBody></Card>;
   if (!plan) return null;
 
-  const [, , w, h] = plan.viewBox;
-  const auto = focus && fit ? focus : [0, 0, w, h];
+  const [vx, vy, w, h] = plan.viewBox;
+  const auto = focus && fit ? focus : [vx, vy, w, h];
   const vb = view ?? auto;
   const r = Math.max(vb[2], vb[3]) * 0.015;            // badge radius follows the zoom
   // wheel zooms around the cursor, drag pans, double click goes back to the automatic view
@@ -186,20 +186,20 @@ export function PlanViewer({ drawingId, evidence }: { drawingId: string; evidenc
         <svg ref={svgRef} viewBox={vb.join(' ')} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
           onDoubleClick={() => setView(null)} style={{ touchAction: 'none', cursor: drag.current ? 'grabbing' : 'grab' }}
           className="h-[68vh] min-h-[22rem] w-full rounded-md border border-slate-200 bg-white" role="img" aria-label="Plan with the found objects marked; scroll to zoom, drag to pan, double click to reset">
-          {plan.background && <image href={plan.background} x={0} y={0} width={w} height={h} opacity={anyFound ? 0.55 : 1} />}
-          {layers.filter(k => !off.has(k)).map(k => (
+          {plan.background && <image href={plan.background} x={vx} y={vy} width={w} height={h} opacity={anyFound ? 0.6 : 1} />}
+          {!plan.background && layers.filter(k => !off.has(k)).map(k => (
             <g key={k} opacity={anyFound ? 0.4 : 1}>
               {(plan.layers[k] as Item[]).filter(it => !numbers.has(it.id)).map(it => shape(it, k, STYLE[k].fill, STYLE[k].stroke, STYLE[k].width))}
             </g>
           ))}
           {/* found objects on top, full strength */}
           <g>
-            {found.map(({ key, it }) => shape(it, key, 'rgba(225,29,72,0.55)', FOUND, Math.max(STYLE[key].width, 1) + 1.5))}
+            {found.map(({ key, it }) => shape(it, key, 'rgba(225,29,72,0.6)', FOUND, Math.max(STYLE[key].width, 1) + 2.5))}
           </g>
           {found.length <= MAX_BADGES && key_badges(found, r)}
         </svg>
         <div className="flex flex-wrap gap-2 text-xs">
-          {layers.map(k => (
+          {!plan.background && layers.map(k => (
             <button key={k} onClick={() => toggle(k)} aria-pressed={!off.has(k)}
               className={cn('inline-flex items-center gap-1.5 rounded-md border px-2 py-1', off.has(k) ? 'border-slate-200 text-slate-400' : 'border-slate-300 text-slate-700')}>
               <span className="inline-block h-2.5 w-2.5 rounded-sm border" style={{ background: STYLE[k].fill === 'none' ? 'white' : STYLE[k].fill, borderColor: STYLE[k].stroke }} />

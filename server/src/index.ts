@@ -68,7 +68,7 @@ app.get('/api/drawings/:id/image', (c) => {
 app.get('/api/drawings/:id/sheet.svg', (c) => {
   const s = getSession(c.req.param('id'));
   const abs = s ? path.join(s.dir, 'sheet.svg') : '';
-  if (!s || s.meta.kind !== 'pdf' || !existsSync(abs)) return c.json({ error: 'no sheet' }, 404);
+  if (!s || (s.meta.kind !== 'pdf' && s.meta.kind !== 'dxf') || !existsSync(abs)) return c.json({ error: 'no sheet' }, 404);
   return c.body(Readable.toWeb(createReadStream(abs)) as ReadableStream, 200, {
     'content-type': 'image/svg+xml', 'content-length': String(statSync(abs).size),
   });
@@ -121,17 +121,31 @@ app.get('/api/drawings/:id/plan', (c) => {
     x0 = Math.min(x0, b[0]); y0 = Math.min(y0, b[1]);
     x1 = Math.max(x1, b[2]); y1 = Math.max(y1, b[3]);
   }
-  const W = 1200;
-  const sc = W / Math.max(x1 - x0, 1e-6);
-  const H = Math.round((y1 - y0) * sc);
-  const tx = ([x, y]: number[]) => [
+  let W = 1200;
+  let sc = W / Math.max(x1 - x0, 1e-6);
+  let H = Math.round((y1 - y0) * sc);
+  let tx = ([x, y]: number[]) => [
     Math.round((x - x0) * sc * 10) / 10,
     Math.round((y1 - y) * sc * 10) / 10,
   ];
-  const txBox = (b: number[]) => {
+  let txBox = (b: number[]) => {
     const a = tx([b[0], b[3]]); const d2 = tx([b[2], b[1]]);
     return [a[0], a[1], d2[0], d2[1]];
   };
+
+  // DXF: the drawing itself is the background (sheet.svg, metres with Y negated), our shapes are laid over it
+  let viewBox: number[] = [0, 0, W, H];
+  let background: string | undefined;
+  const dxfSheet = path.join(s.dir, 'sheet.svg');
+  if (s.meta.kind === 'dxf' && existsSync(dxfSheet)) {
+    const m = readFileSync(dxfSheet, 'utf8').slice(0, 300).match(/viewBox="(-?[\d.]+) (-?[\d.]+) ([\d.]+) ([\d.]+)"/);
+    if (m) {
+      viewBox = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])];
+      background = `/api/drawings/${s.uid}/sheet.svg`;
+      tx = ([x, y]: number[]) => [Math.round(x * 1000) / 1000, Math.round(-y * 1000) / 1000];
+      txBox = (b: number[]) => [b[0], -b[3], b[2], -b[1]];
+    }
+  }
 
   const layers: Record<string, any[]> = {
     slabs: [], walls: [], rooms: [], doors: [], windows: [], fixtures: [], apartments: [],
@@ -157,7 +171,7 @@ app.get('/api/drawings/:id/plan', (c) => {
     layers[key].push(item);
   }
 
-  return c.json({ viewBox: [0, 0, W, H], layers, floors, floor, coverage });
+  return c.json({ viewBox: background ? viewBox : [0, 0, W, H], background, layers, floors, floor, coverage });
 });
 
 /* ------------------------------------------------------------- question */
@@ -259,10 +273,10 @@ app.post('/api/upload', async (c) => {
       const note = (filesOf(s.db, s.drawing.id)[0]?.note as string | undefined) ?? 'no objects found';
       return finish(job, false, `could not parse the file: ${note}`);
     }
-    if (kind !== 'pdf') return finish(job, true);
-    // vector PDF: draw the sheet so answers can be shown on it; a failure here is not fatal
+    if (kind !== 'pdf' && kind !== 'dxf') return finish(job, true);
+    // vector PDF and DXF: draw the sheet so answers can be shown on it; a failure here is not fatal
     job.stage = 'rendering';
-    const r = spawn(PYTHON, [path.resolve('../indexer/render_pdf.py'), path.join(dir, name), path.join(root, 'sheet.svg')]);
+    const r = spawn(PYTHON, [path.resolve(kind === 'dxf' ? '../indexer/render_dxf.py' : '../indexer/render_pdf.py'), path.join(dir, name), path.join(root, 'sheet.svg')]);
     const rt = setTimeout(() => r.kill(), INDEX_TIMEOUT_S * 1000);
     r.on('error', () => { clearTimeout(rt); finish(job, true); });
     r.on('close', () => { clearTimeout(rt); finish(job, true); });
