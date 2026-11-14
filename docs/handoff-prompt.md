@@ -31,6 +31,13 @@ Parse once into SQLite; questions become queries. The model only (a) parses a qu
 4. For ifc_bench (249 text questions) compare answers with the expected text by hand on about 20 questions; fix ifc_facts.py where facts are missing (software string, footprint area, space breakdown, door/window types).
 5. Count tokens and cost of failed LLM calls in usage.ts.
 
+## Findings from the first real call (DeepSeek 4.1 Flash via Verda, works)
+One ifc_bench question: 1.1 s, 3772 input / 25 output tokens, about $0.0005. Issues to fix:
+- `report` returns status "answered" even when the model says the facts do not contain the answer. Make the model return a structured result (answer + `enough: boolean`) and map "not enough" to status refused with a reason. Never present "I don't know" as an answer.
+- The facts sheet is heavy (about 3.7k tokens, mostly the per-space list). Select fact blocks by question (software/schema, levels, spaces by level, doors/windows, counts) or let a cheap first step pick blocks, to cut input tokens. Cost is judged.
+- app.db was stale (indexed before the parser change; it had no `building` rows) and was reindexed for ifc_bench. Any DB built before a parser change must be rebuilt: add a parser version to the DB (e.g. PRAGMA user_version or a meta table) and reindex or refuse when it does not match.
+- `server/node_modules` and `web/node_modules` were built on Linux: reinstall on macOS. Never commit or copy node_modules between platforms.
+
 ## Architecture change to make (decided with organisers' input)
 Judges upload files, one set at a time, and ask several questions about it. There is no dataset-wide database in the product. So:
 - Each upload is parsed on upload into its own small SQLite file (uploads/<id>/index.db), the drawing list shows uploads only, and ask_cli / ifc_facts / the server take that DB path per drawing instead of a global DB_PATH. Handle name collisions (same stem uploaded twice) and cleanup of old uploads.
