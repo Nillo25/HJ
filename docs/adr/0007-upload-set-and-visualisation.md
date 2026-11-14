@@ -7,7 +7,7 @@ At the Stoa booth: judges upload files and ask several questions about one
 file or set. IFC needs no visualisation; opening_design questions are
 questions only; DXF is shown over SVG and PDF.
 
-An IFC viewer was tried (`docs/ifc-viewer-spike/`, three.js + web-ifc):
+An IFC viewer was tried first (a spike, three.js + web-ifc, later removed; see git history):
 - GlobalId highlighting works, and models open fast (71 MB: 1.4 s for
   geometry in Node, about 520 MB of memory).
 - A floor plan cut from the 3D model was not reliable: on the test model many

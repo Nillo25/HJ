@@ -62,8 +62,8 @@ questions are refused with that reason.
 
 Index a dataset folder for evaluation (separate from uploads):
 
-    python indexer/index.py <dataset> --db app.db [--only swiss_dwellings] [--limit N]
-    python indexer/eval.py  <dataset> --db app.db [--source swiss_dwellings]
+    python indexer/index.py <dataset> --db /tmp/dataset.db [--only swiss_dwellings] [--limit N]
+    python indexer/eval.py  <dataset> --db /tmp/dataset.db [--source swiss_dwellings]
 
 Server settings are in `server/.env`.
 
@@ -73,7 +73,7 @@ Server settings are in `server/.env`.
                footprint.py group.py labels.py dict/ (label dictionaries per language)  eval.py bench.py schema.sql
     server/    src/{index,ask,db,usage,py}.ts  test/  accuracy.json (last benchmark, shown in the UI)
     web/       src/{App.tsx, components/, lib/}  (PlanViewer DXF/IFC plan, IfcViewer 3D, PdfViewer, FilePanel ...)
-    docs/      adr/  contract.md  brief.md  backlog.md  knowledge.md  ifc-viewer-spike/ (abandoned)
+    docs/      adr/  contract.md  brief.md  backlog.md  knowledge.md
     Dockerfile docker-compose.yml
 
 ## Accuracy

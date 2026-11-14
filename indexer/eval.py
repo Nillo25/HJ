@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Eval harness: run questions.jsonl and print the accuracy table.
 
-    python eval.py <dataset folder> [--db app.db] [--source swiss_dwellings]
+    python eval.py <dataset folder> [--db dataset.db] [--source swiss_dwellings]
                    [--api http://localhost:3000/api/ask] [--limit 500]
 
 Without --api it calls answer.ask directly: fast, works before the backend.
@@ -47,7 +47,7 @@ def verdict(expected, got, qtype) -> str:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("root")
-    ap.add_argument("--db", default="app.db")
+    ap.add_argument("--db", default="dataset.db")
     ap.add_argument("--source", default=None)
     ap.add_argument("--api", default=None)
     ap.add_argument("--limit", type=int, default=0)

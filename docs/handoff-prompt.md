@@ -1,3 +1,6 @@
+> **Superseded.** This was the handoff of 2026-11-14 (afternoon). Its tasks are done or replaced: the current state is in
+> `CLAUDE.md`, `docs/knowledge.md` and `docs/backlog.md`.
+
 # Handoff prompt for Claude Code
 
 Paste into Claude Code started in the repo root.

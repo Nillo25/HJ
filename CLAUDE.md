@@ -14,7 +14,8 @@ measured results, decisions, mistakes). `docs/backlog.md` says what is left, `do
   the key value. If a key is missing, ask him to set it.
 - cubicasa5k (raster plans) is owned by another person and on hold. Do not build it.
 - The product has no dataset database: each upload is `uploads/<uid>/index.db` (docs/adr/0009).
-  `data/opening_test.db`, `data/demo.db` and `app.db` are dev leftovers; ask before deleting anything.
+  `data/opening_test.db` and `data/demo.db` are old dev databases (git-ignored). Dataset-wide databases are scratch files for
+  `eval.py`; ask before deleting anything that is not obviously a build artefact.
 
 ## Principle
 Compute, don't infer. Parse once into SQLite; a question becomes a query. A model only turns a

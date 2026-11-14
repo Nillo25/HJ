@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Index the Stoa dataset into SQLite.
 
-    python index.py <dataset folder> [--db app.db] [--only swiss_dwellings]
+    python index.py <dataset folder> [--db dataset.db] [--only swiss_dwellings]
 
 Stores EVERYTHING found in a file, regardless of the questions.
 Sources with no questions (europeana, finna, habs, wikimedia) and formats
@@ -69,7 +69,7 @@ def collect(root: str, only: str | None):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("root")
-    ap.add_argument("--db", default="app.db")
+    ap.add_argument("--db", default="dataset.db")
     ap.add_argument("--only", default=None, help="single source, e.g. swiss_dwellings")
     ap.add_argument("--limit", type=int, default=0)
     a = ap.parse_args()

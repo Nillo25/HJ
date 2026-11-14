@@ -1,6 +1,6 @@
 """One question from the command line -> answer JSON on stdout.
 
-    python ask_cli.py --db ../app.db --drawing NAME --question "..."
+    python ask_cli.py --db dataset.db --drawing NAME --question "..."
 
 The server calls this first: a known question template costs nothing and
 needs no model.

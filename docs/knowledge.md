@@ -181,7 +181,7 @@ framing: answer 60% and be wrong 2%, rather than answer everything and be wrong 
 - ifcopenshell -> own STEP reader (`docs/adr/0003`). web-ifc/three.js IFC viewer -> abandoned: a plan
   cut from 3D came out nearly empty because many elements are not attached to a storey; and
   the organisers said IFC needs no visualisation (`docs/adr/0007`). The spike stays in
-  `docs/ifc-viewer-spike/` (first render was tilted because web-ifc output is already Y-up).
+  a spike (removed; the viewer is now `web/src/components/IfcViewer.tsx`; its first render was tilted because web-ifc output is already Y-up).
 - One dataset-wide database -> one small database per upload (decided, not built; see backlog and
   handoff prompt). Routing is manual: the user picks the kind of material.
 - No fine-tuning: questions repeat as templates, a tuned model would not carry to real files.
@@ -267,6 +267,5 @@ language of each question is picked at random. `eval.py` (direct calls, no serve
 
 ## 9. Local files that are not in git
 
-`data/opening_test.db`, `data/demo.db`, `data/examples.json`, `data/sync.tgz`, `app.db`,
-`unknown_labels.txt`, `server/.env`, `uploads/`. Sandbox scratch (`/tmp/*.db`) is gone with the sandbox.
+`data/opening_test.db`, `data/demo.db`, `data/examples.json`, `server/.env`, `uploads/`, `cache.db`. Sandbox scratch (`/tmp/*.db`) is gone with the sandbox.
 Stray untracked: root `package-lock.json`, `.idea/` (now ignored).
