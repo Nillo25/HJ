@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { upload, watchJob, type Drawing, type Kind } from '../lib/api';
+import { pdfFirstPageToPng } from '../lib/pdfToPng';
 import { Badge, Button, Card, CardBody, CardHeader, CardTitle, cn } from './ui';
 
 const KINDS: { kind: Kind; label: string; ext: string; hint: string }[] = [
@@ -14,6 +15,7 @@ type Phase =
   | { name: 'idle' }
   | { name: 'uploading'; file: string; fraction: number }
   | { name: 'parsing'; file: string; stage: string; since: number }
+  | { name: 'converting'; file: string }
   | { name: 'error'; message: string };
 
 const STEPS = ['Upload', 'Parse', 'Ready'];
@@ -29,9 +31,10 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
   const [replacing, setReplacing] = useState(false);
   const [drag, setDrag] = useState(false);
   const [parsedMs, setParsedMs] = useState<number | null>(null);
+  const [converted, setConverted] = useState<{ from: string; pages: number } | null>(null);   // a scanned PDF shown as a PNG
   const [now, setNow] = useState(Date.now());
   const cur = KINDS.find(k => k.kind === kind)!;
-  const busy = phase.name === 'uploading' || phase.name === 'parsing';
+  const busy = phase.name === 'uploading' || phase.name === 'parsing' || phase.name === 'converting';
 
   useEffect(() => {
     if (phase.name !== 'parsing') return;
@@ -39,8 +42,8 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
     return () => clearInterval(t);
   }, [phase.name]);
 
-  async function send(file: File | undefined) {
-    if (!file || busy) return;
+  async function send(file: File | undefined, from?: { name: string; pages: number }) {
+    if (!file || (busy && !from)) return;
     // the extension picks the kind for you; the server still checks that they agree
     const byExt = KINDS.find(k => file.name.toLowerCase().endsWith(k.ext));
     const use = byExt?.kind ?? kind;
@@ -58,9 +61,24 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
       if (job.stage === 'failed') throw new Error(job.log.slice(-1)[0]?.trim() || 'The file could not be parsed.');
       const ms = Date.now() - t0;
       setParsedMs(ms);
+      const d = job.drawings[0];
+      // no text at all = not vector data: draw page 1 in the browser and treat it as a PNG
+      if (d?.kind === 'pdf' && (d.text_lines ?? 0) === 0 && !from) {
+        setPhase({ name: 'converting', file: file.name });
+        try {
+          const r = await pdfFirstPageToPng(file);
+          await send(r.png, { name: file.name, pages: r.pages });
+          return;
+        } catch (e) {
+          setConverted(null);
+          setPhase({ name: 'error', message: `This PDF has no text layer and could not be converted to an image: ${e instanceof Error ? e.message : e}` });
+          return;
+        }
+      }
+      setConverted(from ? { from: from.name, pages: from.pages } : null);
       setPhase({ name: 'idle' });
       setReplacing(false);
-      if (job.drawings[0]) onLoaded(job.drawings[0], ms);
+      if (d) onLoaded(d, ms);
     } catch (e) {
       setPhase({ name: 'error', message: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -106,6 +124,11 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
             <p className="text-xs text-slate-500">{Math.round(phase.fraction * 100)}%</p>
           </div>
         )}
+        {phase.name === 'converting' && (
+          <p className="text-sm" aria-live="polite">
+            <b>{phase.file}</b> has no text layer (a scan or a picture): converting page 1 to a PNG in your browser…
+          </p>
+        )}
         {phase.name === 'parsing' && (
           <p className="text-sm" aria-live="polite">
             {phase.stage === 'rendering' ? 'Drawing the sheet' : 'Parsing the file'}… <span className="tabular-nums text-slate-500">{((now - phase.since) / 1000).toFixed(1)} s</span>
@@ -129,6 +152,11 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
                 : current.elements ? `${current.elements.toLocaleString('en-US')} objects parsed` : 'not parsed (no objects)'}</span>
               {parsedMs != null && <span className="tabular-nums">in {(parsedMs / 1000).toFixed(1)} s</span>}
             </p>
+            {converted && (
+              <p className="text-xs text-amber-800">
+                Converted from <b>{converted.from}</b>, page 1 of {converted.pages}: the PDF has no text layer, so it is handled as an image.
+              </p>
+            )}
           </div>
         )}
 

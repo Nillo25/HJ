@@ -246,6 +246,13 @@ language of each question is picked at random. `eval.py` (direct calls, no serve
 - Measured: esplanades 1928 of 1932 drawn (stairs missing), molio 189/189 walls, clinic plumbing 92 of 119
   fixtures; parse 1 to 5 s, up to 420 MB of memory. The UI prints "drawn N of M".
 - Storeys come from `owner`; elements without a storey are not primary and not drawn.
+- PDF (`PdfViewer.tsx`, pdf.js): every PDF is accepted; `parse_pdf.py` stores all text lines with page and position (first 30
+  pages). Questions are answered from the lines (`textAnswer` in `ask.ts`): Python picks the lines the question is about plus the
+  rest of their row and the table header above, the model must cite line ids, the cited lines are the evidence and are boxed.
+  pdfminer boxes are already in the shown orientation (a /Rotate 90 sheet): map them by scale alone, not by pdf.js's matrix.
+  A PDF with no text line at all (scan, picture, line art without text) is not treated as vector data: the browser draws page 1
+  with pdf.js, converts it to a PNG (`lib/pdfToPng.ts`) and uploads it as a PNG; the card says so. The PNG branch itself
+  (reading pixels) is the next step.
 - IFC 3D (`web/src/components/IfcViewer.tsx`): the browser downloads the original IFC (`/api/drawings/:id/source`, limit
   `VIEWER_MAX_MB`, 150), parses it with web-ifc (WebAssembly, `web/public/wasm/web-ifc.wasm` is copied by `npm run dev|build`)
   and draws it with three.js. Evidence refs are GlobalIds, mapped to express ids in the browser. Found objects are red with
