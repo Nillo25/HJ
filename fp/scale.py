@@ -80,6 +80,11 @@ def measure_bar(img: np.ndarray, bbox) -> float | None:
         return None
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
     dark = gray < 170  # линии шкалы бывают серыми (тонкий контур сегментов)
+    # линии, проходящие через всю рамку от края до края (граница штампа, рамка листа), — не шкала:
+    # шкала лежит внутри рамки VLM с запасом pad, а такая линия длиннее рамки и даёт её ширину (S-100F: 158 px вместо 98)
+    edge = 3
+    crossing = dark[:, :edge].any(1) & dark[:, -edge:].any(1) & (dark.sum(1) >= 0.9 * dark.shape[1])
+    dark[crossing] = False
     cov = dark.sum(1)
     if cov.max() < 30:
         return None
@@ -90,8 +95,13 @@ def measure_bar(img: np.ndarray, bbox) -> float | None:
         top -= 1
     while bot < len(cov) - 1 and cov[bot + 1] >= 0.5 * cov[r]:
         bot += 1
-    # сегменты шкалы бывают «ступеньками» на разной высоте — берём полосу с запасом по вертикали
-    top, bot = max(0, top - 6), min(len(cov) - 1, bot + 6)
+    # сегменты шкалы бывают «ступеньками» на разной высоте — расширяем полосу по вертикали до 6 строк,
+    # но только по сплошным непустым строкам: подписи 0/500/1000/2000 отделены пустой строкой и в длину не входят
+    for _ in range(6):
+        if top > 0 and cov[top - 1] > 0:
+            top -= 1
+        if bot < len(cov) - 1 and cov[bot + 1] > 0:
+            bot += 1
     xs = np.flatnonzero(dark[top:bot + 1].any(0))
     # чередование чёрных/белых сегментов даёт разрывы — допускаем их, но не дальше 15% ширины рамки
     max_gap = max(10, int(0.15 * (x1 - x0)))
@@ -234,11 +244,69 @@ def estimate(img: np.ndarray, scene: Scene, read: dict | None = None, cost: floa
     if not cands:
         return {"px_per_m": None, "source": None, "detail": "на плане не нашлось шкалы или подписанных площадей",
                 "vlm_cost_usd": round(cost, 6)}
-    rank = {"high": 2, "medium": 1, "low": 0}
-    best = max(cands, key=lambda c: rank[c["confidence"]])
-    # два независимых способа совпали в пределах 5% — уверенность high
-    others = [c for c in cands if c is not best and abs(c["px_per_m"] / best["px_per_m"] - 1) <= 0.05]
-    if others:
-        best = {**best, "confidence": "high", "detail": best["detail"] + f"; совпало с: {others[0]['source']}"}
+    best = choose(cands, from_dimensions(scene, read))
     best["vlm_cost_usd"] = round(cost, 6)
     return best
+
+
+# ---------------- выбор между источниками ----------------
+AGREE, DISAGREE = 0.05, 0.10  # совпали: ≤5% — high; разошлись: >10% — нужен третий источник
+
+
+def _rel(a: dict, b: dict) -> float:
+    return abs(a["px_per_m"] / b["px_per_m"] - 1)
+
+
+def from_dimensions(scene: Scene, read: dict) -> dict | None:
+    """Грубая проверка по габаритному размеру: самый большой размер с листа (27000 мм) против длинной стороны
+    охвата найденных объектов внутри рамки чертежа. Самостоятельным масштабом не выбирается — только судья,
+    когда шкала, подписи площадей и текст масштаба расходятся (S-100F: 1318 px / 27 м = 48,8 px/м)."""
+    dims = [float(d.get("value_m") or 0) for d in (read.get("dimensions") or [])]
+    dims = [d for d in dims if d > 0]
+    if not dims or not scene.objects:
+        return None
+    db = read.get("drawing_bbox")
+    boxes = []
+    for o in scene.objects:
+        s = o.shape()
+        if s.is_empty:
+            continue
+        c = s.centroid
+        if db and len(db) == 4 and not (db[0] <= c.x <= db[2] and db[1] <= c.y <= db[3]):
+            continue
+        boxes.append(s.bounds)
+    if not boxes:
+        return None
+    b = np.array(boxes)
+    span = max(b[:, 2].max() - b[:, 0].min(), b[:, 3].max() - b[:, 1].min())
+    m = max(dims)
+    return {"px_per_m": span / m, "source": "dimensions", "confidence": "low",
+            "detail": f"охват объектов {span:.0f} px / габарит {m:g} м"}
+
+
+def choose(cands: list[dict], dims: dict | None = None) -> dict:
+    """Лучший кандидат по уверенности; два источника в пределах 5% — high. Если лучший расходится с другим
+    источником больше чем на 10%, не выбираем его молча: берём тот, что сходится (≤10%) с третьим
+    (другой источник или габаритный размер dims); если третьего нет или он не решает — уверенность low."""
+    rank = {"high": 2, "medium": 1, "low": 0}
+    best = max(cands, key=lambda c: rank[c["confidence"]])
+    fmt = lambda c: f"{c['source']} {c['px_per_m']:.1f}"
+    agree = [c for c in cands if c is not best and _rel(c, best) <= AGREE]
+    if agree:
+        return {**best, "confidence": "high", "detail": best["detail"] + f"; совпало с: {agree[0]['source']}"}
+    conflicts = [c for c in cands if c is not best and _rel(c, best) > DISAGREE]
+    if not conflicts:
+        return dict(best)
+    judges = cands + ([dims] if dims else [])
+    support = {id(c): [j for j in judges if j is not c and j["source"] != c["source"] and _rel(j, c) <= DISAGREE]
+               for c in cands}
+    backed = [c for c in cands if support[id(c)]]
+    gap = "источники разошлись: " + ", ".join(fmt(c) for c in cands) + " px/м"
+    if backed:
+        win = max(backed, key=lambda c: (len(support[id(c)]), rank[c["confidence"]]))
+        rivals = [c for c in backed if c is not win and _rel(c, win) > DISAGREE]
+        if not rivals:
+            by = ", ".join(fmt(j) for j in support[id(win)])
+            conf = "medium" if rank[win["confidence"]] < 2 else win["confidence"]
+            return {**win, "confidence": conf, "detail": win["detail"] + f"; {gap}; выбран по согласию с: {by}"}
+    return {**best, "confidence": "low", "detail": best["detail"] + f"; {gap}; проверьте масштаб вручную"}

@@ -265,6 +265,37 @@ def test_measure_bar():
     assert scale.measure_bar(img, [30, 40, 350, 60]) == 300.0
 
 
+def test_measure_bar_ignores_frame_line_and_labels():
+    """S-100F: над шкалой проходит граница штампа длиннее рамки VLM, над сегментами — подписи 0 500 1000 2000."""
+    import numpy as np
+    from fp import scale
+    img = np.full((120, 500, 3), 255, np.uint8)
+    img[30:32, :] = 0                # линия штампа через весь лист
+    img[38:44, 150:155] = 0          # подпись «0»
+    img[38:44, 240:262] = 0          # подпись «2000» выступает за конец шкалы
+    img[48:51, 150:200] = 0          # сегменты-«ступеньки» на разной высоте
+    img[51:54, 200:250] = 0
+    assert scale.measure_bar(img, [150, 45, 250, 55]) == 100.0
+
+
+def test_scale_sources_disagree():
+    from fp import scale
+    bar = {"px_per_m": 79.0, "source": "scale_bar", "confidence": "medium", "detail": "шкала"}
+    text = {"px_per_m": 48.7, "source": "scale_text", "confidence": "low", "detail": "1:50 на A1"}
+    dims = {"px_per_m": 48.8, "source": "dimensions", "confidence": "low", "detail": "габарит"}
+    # третий источник (габарит) сходится с текстом — берём текст, а не шкалу
+    r = scale.choose([bar, text], dims)
+    assert r["source"] == "scale_text" and r["confidence"] == "medium" and "разошлись" in r["detail"]
+    # третьего нет — шкала, но low и объяснение
+    r = scale.choose([bar, text])
+    assert r["source"] == "scale_bar" and r["confidence"] == "low" and "разошлись" in r["detail"]
+    # совпали в пределах 5% — high, как раньше
+    r = scale.choose([{**bar, "px_per_m": 49.0}, text], dims)
+    assert r["source"] == "scale_bar" and r["confidence"] == "high"
+    # габарит сам по себе не выбирается
+    assert scale.choose([bar], dims)["source"] == "scale_bar"
+
+
 def test_find_zones_by_legend_color_and_legend_answer():
     import numpy as np
     from fp import sheet, query
