@@ -5,7 +5,7 @@
  * только на новый вопрос, и результат тут же кладётся в кэш.
  */
 import { z } from 'zod';
-import { generateObject, generateText } from 'ai';
+import { generateObject } from 'ai';
 import { google } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { execFile } from 'node:child_process';
@@ -56,19 +56,28 @@ async function report(d: Session, question: string, t0: number, prior: Usage[], 
     return { status: 'refused', reason: 'no facts could be computed for this model', missing: 'data',
              route, cost_usd: priorCost, usage: prior, latency_ms: Date.now() - t0 };
   }
-  const { text, usage } = await generateText({
+  const { object, usage } = await generateObject({
     model: MODEL,
     temperature: 0,
+    schema: z.object({
+      enough: z.boolean().describe('true only if the facts contain what the question asks'),
+      answer: z.string().describe('the answer as compact plain lines; if not enough, what is missing'),
+    }),
     system:
       'You answer a question about one building model using ONLY the JSON facts given. ' +
       'Copy numbers exactly, never compute new ones, never invent. Answer in the language of the question, ' +
-      'compactly, as plain lines. If the facts do not contain the answer, say what is missing.',
+      'compactly, as plain lines. Set enough=false when the facts do not contain the answer.',
     prompt: `Facts:\n${JSON.stringify(facts)}\n\nQuestion: ${question}`,
   });
   const cost = estimateCost(usage);
   const used = [...prior, recordUsage(`${PROVIDER}:${MODEL_ID}`, usage?.promptTokens ?? 0, usage?.completionTokens ?? 0, cost)];
+  if (!object.enough) {
+    // never present "I don't know" as an answer
+    return { status: 'refused', reason: object.answer.trim(), missing: 'data', route,
+             cost_usd: priorCost + cost, usage: used, latency_ms: Date.now() - t0, fn: 'report', args: {} };
+  }
   return {
-    status: 'answered', answer: text.trim(), unit: null, confidence: 1, route,
+    status: 'answered', answer: object.answer.trim(), unit: null, confidence: 1, route,
     evidence: [], cost_usd: priorCost + cost, usage: used, latency_ms: Date.now() - t0,
     fn: 'report', args: {},
   };
