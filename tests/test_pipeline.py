@@ -312,3 +312,16 @@ def test_spaces_from_labels_one_row_per_label_and_area():
     res = spaces_from_labels(img, labels, px_per_m=100.0)
     assert len(res) == 3 and res[0]["ok"] and not res[1]["ok"] and res[2]["ok"]
     assert abs(res[0]["area_m2"] - 3.8) < 0.25                 # внутри стен ~194x194 px при 100 px/м
+
+
+def test_fixture_second_opinion_lowers_confidence():
+    from fp.scene import Scene
+    from fp import query
+    sq = lambda x, y, s: [(x, y), (x + s, y), (x + s, y + s), (x, y + s)]
+    sc = Scene.build("x", 500, 500, [("toilet", sq(10, 10, 20), 0.97)], meta={"candidates": []})
+    assert query.count(sc, "toilet").confidence == "high"
+    sc.meta["fixture_check"] = {"done": True, "counts": {"toilet": 0, "sink": 1}}
+    a = query.count(sc, "toilet")
+    assert a.answer == 1 and a.confidence == "medium" and "второе мнение" in a.note
+    sc.meta["fixture_check"]["counts"]["toilet"] = 1
+    assert query.count(sc, "toilet").confidence == "high"

@@ -130,6 +130,15 @@ def count(scene: Scene, cls: str, room: str | None = None) -> Answer:
                                           {r.id for r in _find_room(scene, room)} if room else None)
     if cal:  # калиброванный уровень вместо порогов HIGH/MEDIUM по min(conf)
         lvl, score, note = cal
+        # второе мнение VLM по сантехнике (fp/arbiter.py): расхождение -> на ступень ниже
+        fc = scene.meta.get("fixture_check") or {}
+        if not room and fc.get("done") and cls in fc.get("counts", {}):
+            v = fc["counts"][cls]
+            n_model = len(items)
+            if v != n_model:
+                lvl = {"high": "medium", "medium": "low", "low": "low"}[lvl]
+                extra = f"второе мнение ИИ: {LABELS_RU.get(cls, cls)} — {v} шт., проверьте"
+                note = f"{note}; {extra}" if note else extra
         n = _count_saunas(items) if cls == "sauna" else len(items)
         return Answer(n, "шт", lvl, score, [e.id for e in items], [_ev(e) for e in items],
                       note or ("сауна = помещение со скамьями" if cls == "sauna" and n else None))

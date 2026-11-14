@@ -203,6 +203,10 @@ def analyze_sheet(img: np.ndarray, sc: Scene) -> Scene:
     # помещения: площади и плинтусы (подписи + заливка по стенам + контуры модели)
     from .spaces import build as build_spaces
     build_spaces(img, sc)
+    # второе мнение ИИ по сантехнике — только для уверенности, детекции не меняет (fp/arbiter.py)
+    from .arbiter import check_fixtures
+    sc.meta["fixture_check"] = check_fixtures(img, sc)
+    sc.meta["sheet_cost_usd"] = round(sc.meta.get("sheet_cost_usd", 0) + sc.meta["fixture_check"].get("cost_usd", 0), 6)
     return sc
 
 
