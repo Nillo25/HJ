@@ -246,8 +246,15 @@ language of each question is picked at random. `eval.py` (direct calls, no serve
 - Measured: esplanades 1928 of 1932 drawn (stairs missing), molio 189/189 walls, clinic plumbing 92 of 119
   fixtures; parse 1 to 5 s, up to 420 MB of memory. The UI prints "drawn N of M".
 - Storeys come from `owner`; elements without a storey are not primary and not drawn.
-- DXF: `render_dxf.py` draws the drawing itself (walls from HATCH and polylines, door swings, windows, fixtures, room labels)
-  as `sheet.svg` in metres with Y negated; the plan endpoint returns our shapes in the same space, and only the found
+- IFC 3D (`web/src/components/IfcViewer.tsx`): the browser downloads the original IFC (`/api/drawings/:id/source`, limit
+  `VIEWER_MAX_MB`, 150), parses it with web-ifc (WebAssembly, `web/public/wasm/web-ifc.wasm` is copied by `npm run dev|build`)
+  and draws it with three.js. Evidence refs are GlobalIds, mapped to express ids in the browser. Found objects are red with
+  numbered sprites, the rest is ghosted, IfcSpace volumes are hidden unless asked about. After an answer the model is cut
+  just above the found objects (clipping plane) and the camera looks from above: a real floor plan out of the model.
+  web-ifc returns Y-up geometry: do not rotate it again. Measured: 12 MB model about 3 s, 74 MB model under 10 s.
+  The 2D "Plan by storey" (footprints, `ifc_geom.py`) stays as the second tab.
+- DXF: `render_dxf.py` draws the drawing itself (LINE, LWPOLYLINE/POLYLINE with arcs, ARC, CIRCLE, ELLIPSE, SPLINE, SOLID, HATCH,
+  TEXT/MTEXT, INSERT of blocks, entity and layer colours; the eight swiss layers have a fixed style) as `sheet.svg` in metres with Y negated; the plan endpoint returns our shapes in the same space, and only the found
   objects are drawn over the picture. The first 10/20 pair of a HATCH is its elevation point, not a vertex.
 - PDF: `render_pdf.py` draws lines, rectangles, curves and text of page 1 as SVG (A-801: 0.8 s, 391 KB);
   schedule row bboxes are in PDF space, Y up.
