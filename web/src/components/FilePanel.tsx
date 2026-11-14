@@ -7,7 +7,7 @@ const KINDS: { kind: Kind; label: string; ext: string; hint: string }[] = [
   { kind: 'dxf', label: 'DXF plan', ext: '.dxf', hint: 'drawn as the real plan; what you ask about is marked on it' },
   { kind: 'ifc', label: 'IFC model', ext: '.ifc', hint: '3D model in the browser, with what you ask about marked' },
   { kind: 'pdf', label: 'PDF sheet', ext: '.pdf', hint: 'text and schedules are read; the lines used are boxed (a scan becomes a PNG)' },
-  { kind: 'png', label: 'PNG plan', ext: '.png', hint: 'shown as uploaded; reading the pixels is not supported yet' },
+  { kind: 'png', label: 'PNG plan', ext: '.png', hint: 'a raster plan: doors, windows, fixtures and rooms are detected and marked (set the scale for areas)' },
 ];
 const KIND_LABEL: Record<Kind, string> = { dxf: 'DXF plan', ifc: 'IFC model', pdf: 'PDF sheet', png: 'PNG plan' };
 
@@ -139,7 +139,7 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
         )}
         {phase.name === 'parsing' && (
           <p className="text-sm" aria-live="polite">
-            {phase.stage === 'rendering' ? 'Drawing the sheet' : 'Parsing the file'}… <span className="tabular-nums text-slate-500">{((now - phase.since) / 1000).toFixed(1)} s</span>
+            {phase.stage === 'rendering' ? 'Drawing the sheet' : phase.stage === 'analyzing' ? 'Reading the plan (detecting doors, windows, fixtures, rooms)' : phase.stage === 'queued' ? 'Waiting for a free slot' : 'Parsing the file'}… <span className="tabular-nums text-slate-500">{((now - phase.since) / 1000).toFixed(1)} s</span>
           </p>
         )}
 
@@ -157,6 +157,7 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
               <Badge tone="blue">{KIND_LABEL[current.kind]}</Badge>
               <span>{current.kind === 'pdf'
                 ? `${(current.text_lines ?? 0).toLocaleString('en-US')} text lines read${current.elements ? `, ${current.elements} schedule rows` : ''}`
+                : current.kind === 'png' ? (current.raster ? 'read by the floor-plan service' : 'shown as uploaded')
                 : current.elements ? `${current.elements.toLocaleString('en-US')} objects parsed` : 'not parsed (no objects)'}</span>
               {parsedMs != null && <span className="tabular-nums">in {(parsedMs / 1000).toFixed(1)} s</span>}
             </p>

@@ -13,6 +13,7 @@ import path from 'node:path';
 import { assertBudget, recordFailure, recordUsage, type Usage } from './usage.js';
 import { cacheGet, cachePut, floorsOf, queryElements, type Session } from './db.js';
 import { PYTHON } from './py.js';
+import { rasterAsk } from './raster.js';
 
 /** Question parsing model. LLM_PROVIDER=openai|google, LLM_MODEL overrides the default. */
 const PROVIDER = process.env.LLM_PROVIDER ?? (process.env.OPENAI_API_KEY ? 'openai' : 'google');
@@ -298,6 +299,9 @@ function fill(args: any, slots: string[]) {
 export async function ask(d: Session, question: string) {
   const t0 = Date.now();
   const drawingId = d.drawing.id;
+
+  // a raster plan (PNG) is read by the floor-plan service, see raster.ts
+  if (d.meta.kind === 'png') return rasterAsk(d, question, t0);
 
   const tpl = await pyTemplate(d, question);
   // a PDF without schedule rows has no "parsed objects" but has text: it falls through to the text path

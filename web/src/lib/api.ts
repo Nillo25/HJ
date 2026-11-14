@@ -9,6 +9,8 @@ export type Drawing = {
   elements: number;
   text_lines?: number;
   vector?: boolean;
+  /** a raster plan (PNG) read by the floor-plan service: it is drawn from the scene it returned */
+  raster?: boolean;
   capabilities?: { counts?: string; areas?: string; text?: string; reason?: string } | null;
   files?: { format: string; role?: string }[];
 };
@@ -58,6 +60,8 @@ export type Answer = {
 export type Plan = {
   viewBox: [number, number, number, number];
   background?: string;
+  /** with a background: draw the layers over it (detections over a raster plan) */
+  overlay?: boolean;
   floors?: { id: number; name: string; n: number }[];
   floor?: number | null;
   coverage?: { drawn: number; total: number };
@@ -123,5 +127,20 @@ export function watchJob(id: string, onUpdate: (j: Job) => void): Promise<Job> {
     };
   });
 }
+
+export type RasterInfo = {
+  px_per_m: number | null; scale_source: string | null; scale_detail: string | null;
+  stale: boolean; size: [number, number]; objects: number; rooms: number;
+};
+async function post<T>(url: string, body?: unknown): Promise<T> {
+  const r = await fetch(url, { method: 'POST', headers: body ? { 'content-type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) throw new Error(((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? `${r.status} ${r.statusText}`);
+  return r.json() as Promise<T>;
+}
+export const getRaster = (id: string) => fetch(`/api/drawings/${id}/raster`).then(r => j<RasterInfo>(r));
+export type ScaleBody = { x1: number; y1: number; x2: number; y2: number; length: number; unit: string };
+export const setRasterScale = (id: string, b: ScaleBody) => post<{ px_per_m: number }>(`/api/drawings/${id}/raster/scale`, b);
+export const autoRasterScale = (id: string) => post<{ px_per_m?: number | null; detail?: string }>(`/api/drawings/${id}/raster/scale/auto`);
+export const reanalyzeRaster = (id: string) => post<{ ok: boolean }>(`/api/drawings/${id}/raster/reanalyze`);
 
 export const unitLabel = (u?: string) => (u === 'm2' ? 'm²' : u === 'sf' ? 'SF' : u === 'count' || u === 'text' || !u ? '' : u);

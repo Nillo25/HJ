@@ -39,7 +39,12 @@ const nameOf = (e: Evidence) => {
  * Draws the plan and proves the answer on it: what was found is marked in red and numbered like the
  * evidence table, everything else is dimmed, and per storey counts say where the objects are.
  */
-export function PlanViewer({ drawingId, evidence }: { drawingId: string; evidence: Evidence[] }) {
+export function PlanViewer({ drawingId, evidence, pick, marks = [] }: {
+  drawingId: string; evidence: Evidence[];
+  /** a click on the plan is a point (plan coordinates) instead of a pan: used to set the scale */
+  pick?: (x: number, y: number) => void;
+  marks?: [number, number][];
+}) {
   const [plan, setPlan] = useState<Plan | null | undefined>(undefined);
   const [floor, setFloor] = useState<number | null>(null);
   const [off, setOff] = useState<Set<string>>(new Set());
@@ -84,6 +89,8 @@ export function PlanViewer({ drawingId, evidence }: { drawingId: string; evidenc
     setFit(true);
   }, [byFloor]);
   useEffect(() => { getPlan(drawingId, floor).then(setPlan).catch(() => setPlan(null)); }, [drawingId, floor]);
+  // detections over a picture: doors, windows and fixtures first; walls and rooms cover the drawing, so they start hidden
+  useEffect(() => { if (plan?.overlay) setOff(new Set(['rooms', 'walls'])); }, [drawingId, plan?.overlay]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const layers = useMemo(() => ORDER.filter(k => plan?.layers[k]?.length), [plan]);
   const found = useMemo(() => {
@@ -130,7 +137,9 @@ export function PlanViewer({ drawingId, evidence }: { drawingId: string; evidenc
     setView([px - (px - vb[0]) * k, py - (py - vb[1]) * k, nw, nh]);
   };
   wheelRef.current = onWheel;
-  const onDown = (e: React.PointerEvent) => { (e.target as Element).setPointerCapture?.(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, vb: [...vb] }; };
+  const onDown = (e: React.PointerEvent) => {
+    if (pick) { const [x, y] = toWorld(e, vb); pick(x, y); return; }
+    (e.target as Element).setPointerCapture?.(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, vb: [...vb] }; };
   const onMove = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d) return;
@@ -183,11 +192,11 @@ export function PlanViewer({ drawingId, evidence }: { drawingId: string; evidenc
           </p>
         )}
         <svg ref={svgRef} viewBox={vb.join(' ')} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
-          onDoubleClick={() => setView(null)} style={{ touchAction: 'none', cursor: drag.current ? 'grabbing' : 'grab' }}
+          onDoubleClick={() => setView(null)} style={{ touchAction: 'none', cursor: pick ? 'crosshair' : drag.current ? 'grabbing' : 'grab' }}
           className="h-[68vh] min-h-[22rem] w-full rounded-md border border-slate-200 bg-white" role="img" aria-label="Plan with the found objects marked; scroll to zoom, drag to pan, double click to reset">
           {plan.background && <image href={plan.background} x={vx} y={vy} width={w} height={h} opacity={anyFound ? 0.6 : 1} />}
-          {!plan.background && layers.filter(k => !off.has(k)).map(k => (
-            <g key={k} opacity={anyFound ? 0.4 : 1}>
+          {(!plan.background || plan.overlay) && layers.filter(k => !off.has(k)).map(k => (
+            <g key={k} opacity={plan.overlay ? (anyFound ? 0.3 : 0.55) : anyFound ? 0.4 : 1}>
               {(plan.layers[k] as Item[]).filter(it => !numbers.has(it.id)).map(it => shape(it, k, STYLE[k].fill, STYLE[k].stroke, STYLE[k].width))}
             </g>
           ))}
@@ -196,9 +205,15 @@ export function PlanViewer({ drawingId, evidence }: { drawingId: string; evidenc
             {found.map(({ key, it }) => shape(it, key, 'rgba(225,29,72,0.6)', FOUND, Math.max(STYLE[key].width, 1) + 2.5))}
           </g>
           {found.length <= MAX_BADGES && key_badges(found, r)}
+          {marks.length > 0 && (
+            <g pointerEvents="none" stroke="#0f172a" strokeWidth={2} vectorEffect="non-scaling-stroke">
+              {marks.length === 2 && <line x1={marks[0][0]} y1={marks[0][1]} x2={marks[1][0]} y2={marks[1][1]} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />}
+              {marks.map(([x, y], i) => <circle key={i} cx={x} cy={y} r={r * 0.5} fill="#facc15" vectorEffect="non-scaling-stroke" />)}
+            </g>
+          )}
         </svg>
         <div className="flex flex-wrap gap-2 text-xs">
-          {!plan.background && layers.map(k => (
+          {(!plan.background || plan.overlay) && layers.map(k => (
             <button key={k} onClick={() => toggle(k)} aria-pressed={!off.has(k)}
               className={cn('inline-flex items-center gap-1.5 rounded-md border px-2 py-1', off.has(k) ? 'border-slate-200 text-slate-400' : 'border-slate-300 text-slate-700')}>
               <span className="inline-block h-2.5 w-2.5 rounded-sm border" style={{ background: STYLE[k].fill === 'none' ? 'white' : STYLE[k].fill, borderColor: STYLE[k].stroke }} />

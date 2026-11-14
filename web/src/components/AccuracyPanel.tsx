@@ -11,7 +11,7 @@ type Summary = {
 
 const NAME: Record<string, string> = {
   swiss_dwellings: 'DXF plans', ifc_models: 'IFC models', ifc_bench: 'IFC free-form (text)',
-  opening_design: 'PDF schedules', cubicasa5k: 'PNG plans (not supported yet)',
+  opening_design: 'PDF schedules', cubicasa5k: 'PNG plans',
 };
 const pct = (x: number | null | undefined) => (x == null ? '—' : `${(x * 100).toFixed(1)}%`);
 

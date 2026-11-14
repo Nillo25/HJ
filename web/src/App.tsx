@@ -7,6 +7,7 @@ import { FilePanel } from './components/FilePanel';
 import { IfcViewer } from './components/IfcViewer';
 import { PdfViewer } from './components/PdfViewer';
 import { PlanViewer } from './components/PlanViewer';
+import { RasterTools } from './components/RasterTools';
 import { UsageBar } from './components/UsageBar';
 import { Button, Card, CardBody, CardHeader, CardTitle, Input } from './components/ui';
 
@@ -25,6 +26,7 @@ export default function App() {
   const [usageKey, setUsageKey] = useState(0);
   const [ifcTab, setIfcTab] = useState<'3d' | 'plan'>('3d');
   const [pick, setPick] = useState<Part | null>(null);       // a part of an area breakdown shown on the plan
+  const [scalePts, setScalePts] = useState<[number, number][] | null>(null);   // raster plan: points picked on the plan for the scale
 
   // after a reload, come back to the file that was open (uploads live on the server for a day)
   useEffect(() => {
@@ -59,7 +61,8 @@ export default function App() {
   }
   const onSubmit = (e: FormEvent) => { e.preventDefault(); run(question); };
 
-  const hasPlan = current && current.kind !== 'png' && current.kind !== 'pdf';
+  // a PNG read by the floor-plan service is drawn like a plan (its scene over the picture); without the service it is just shown
+  const hasPlan = current && (current.kind === 'png' ? current.raster : current.kind !== 'pdf');
   const evidence = pick?.evidence ?? answer?.evidence ?? [];
 
   return (
@@ -110,8 +113,12 @@ export default function App() {
           {/* both stay mounted: switching must not reload a 70 MB model */}
           {current?.kind === 'ifc' && <div className={ifcTab === '3d' ? '' : 'hidden'}><IfcViewer key={current.id} drawingId={current.id} evidence={evidence} /></div>}
           {current?.kind === 'pdf' && <PdfViewer key={current.id} drawingId={current.id} evidence={evidence} />}
-          {hasPlan && <div className={current.kind === 'ifc' && ifcTab !== 'plan' ? 'hidden' : ''}><PlanViewer key={current.id} drawingId={current.id} evidence={evidence} /></div>}
-          {current?.kind === 'png' && (
+          {hasPlan && <div className={current.kind === 'ifc' && ifcTab !== 'plan' ? 'hidden' : ''}><PlanViewer key={current.id} drawingId={current.id} evidence={evidence}
+            pick={scalePts && scalePts.length < 2 ? (x, y) => setScalePts(p => (p && p.length < 2 ? [...p, [x, y]] : p)) : undefined} marks={scalePts ?? []} /></div>}
+          {current?.kind === 'png' && current.raster && (
+            <RasterTools key={`t${current.id}`} drawingId={current.id} points={scalePts} setPoints={setScalePts} onChanged={() => setUsageKey(k => k + 1)} />
+          )}
+          {current?.kind === 'png' && !current.raster && (
             <Card>
               <CardHeader><CardTitle>Drawing</CardTitle></CardHeader>
               <CardBody className="space-y-2">

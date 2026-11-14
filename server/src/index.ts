@@ -17,6 +17,9 @@ import {
 import { ask } from './ask.js';
 import { Semaphore, dailyLimit, limit, rateLimit } from './limits.js';
 import { PYTHON } from './py.js';
+import {
+  RasterError, analyze, rasterAutoScale, rasterEnabled, rasterImage, rasterInfo, rasterPlan, rasterReanalyze, rasterSetScale,
+} from './raster.js';
 import { BudgetError, countQuestion, usageSnapshot } from './usage.js';
 
 ensureUploads();
@@ -54,7 +57,16 @@ function card(s: Session) {
     text_lines: (s.db.prepare('SELECT COUNT(*) n FROM text_spans').get() as any).n as number,
     // a PDF is vector data when it has text or drawn shapes; only a picture-only PDF (a scan) is treated as an image
     vector: s.meta.kind === 'pdf' ? pdfIsVector(s) : undefined,
+    // a PNG read by the floor-plan service: the screen draws its scene instead of the bare picture
+    raster: s.meta.kind === 'png' ? Boolean(s.meta.raster) : undefined,
   };
+}
+
+/** A failure of the floor-plan service or of the budget, as the answer to the request. */
+function rasterFail(c: any, e: unknown) {
+  if (e instanceof BudgetError) return c.json({ error: e.message }, 429);
+  if (e instanceof RasterError) return c.json({ error: e.message }, e.status === 404 ? 404 : 502);
+  return c.json({ error: String((e as Error)?.message ?? e) }, 500);
 }
 
 app.get('/api/drawings', (c) => c.json({ drawings: listSessions().map(card) }));
@@ -87,9 +99,16 @@ app.get('/api/drawings/:id/source', (c) => {
 });
 
 /** The original upload, for the raster display (PNG). */
-app.get('/api/drawings/:id/image', (c) => {
+app.get('/api/drawings/:id/image', async (c) => {
   const s = getSession(c.req.param('id'));
   if (!s || s.meta.kind !== 'png') return c.json({ error: 'no image' }, 404);
+  if (s.meta.raster) {
+    // the service's copy: its coordinates (after rotation and cropping) are the ones the scene is drawn in
+    try {
+      const r = await rasterImage(s);
+      return c.body(r.body as ReadableStream, 200, { 'content-type': r.headers.get('content-type') ?? 'image/png', 'cache-control': 'no-cache' });
+    } catch (e) { return rasterFail(c, e); }
+  }
   const abs = path.join(s.dir, 'data', SOURCE_BY_KIND.png, s.meta.fileName);
   if (!existsSync(abs)) return c.json({ error: 'no image' }, 404);
   return c.body(Readable.toWeb(createReadStream(abs)) as ReadableStream, 200, {
@@ -106,11 +125,53 @@ app.get('/api/drawings/:id/sheet.svg', (c) => {
   });
 });
 
+/* ------------- raster plans: what the floor-plan service read, and its scale (raster.ts) */
+
+const rasterSession = (id: string) => {
+  const s = getSession(id);
+  return s && s.meta.kind === 'png' && rasterEnabled() ? s : null;
+};
+app.use('/api/drawings/:id/raster/*', rateLimit('raster', limit('RATE_UPLOAD_PER_MIN', 6)));
+
+app.get('/api/drawings/:id/raster', async (c) => {
+  const s = rasterSession(c.req.param('id'));
+  if (!s) return c.json({ error: 'not a raster plan' }, 404);
+  try { return c.json(await rasterInfo(s)); } catch (e) { return rasterFail(c, e); }
+});
+
+app.post('/api/drawings/:id/raster/scale', async (c) => {
+  const s = rasterSession(c.req.param('id'));
+  if (!s) return c.json({ error: 'not a raster plan' }, 404);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => null);
+  const nums = ['x1', 'y1', 'x2', 'y2', 'length'].map((k) => Number(b?.[k]));
+  if (!b || nums.some((n) => !Number.isFinite(n)) || !(nums[4] > 0) || typeof b.unit !== 'string') {
+    return c.json({ error: 'x1, y1, x2, y2, length (> 0) and unit are required' }, 400);
+  }
+  try {
+    return c.json(await rasterSetScale(s, { x1: nums[0], y1: nums[1], x2: nums[2], y2: nums[3], length: nums[4], unit: b.unit }));
+  } catch (e) { return rasterFail(c, e); }
+});
+
+app.post('/api/drawings/:id/raster/scale/auto', async (c) => {
+  const s = rasterSession(c.req.param('id'));
+  if (!s) return c.json({ error: 'not a raster plan' }, 404);
+  try { return c.json(await rasterAutoScale(s)); } catch (e) { return rasterFail(c, e); }
+});
+
+app.post('/api/drawings/:id/raster/reanalyze', async (c) => {
+  const s = rasterSession(c.req.param('id'));
+  if (!s) return c.json({ error: 'not a raster plan' }, 404);
+  try { return c.json(await rasterReanalyze(s)); } catch (e) { return rasterFail(c, e); }
+});
+
 /* ------------------------- geometry for the plan viewer (contract section 6) */
 
-app.get('/api/drawings/:id/plan', (c) => {
+app.get('/api/drawings/:id/plan', async (c) => {
   const s = getSession(c.req.param('id'));
   if (!s) return c.json({ error: 'not found' }, 404);
+  if (s.meta.kind === 'png' && s.meta.raster) {
+    try { return c.json(await rasterPlan(s)); } catch (e) { return rasterFail(c, e); }
+  }
   let els = queryElements(s.db, {
     drawing_id: s.drawing.id, type: null, subtype: null, floor: null, literal: null,
   }) as Element[];
@@ -305,6 +366,13 @@ app.post('/api/upload', async (c) => {
     if (kind !== 'png' && kind !== 'pdf' && elementCount(s.db, s.drawing.id) === 0) {
       const note = (filesOf(s.db, s.drawing.id)[0]?.note as string | undefined) ?? 'no objects found';
       return finish(job, false, `could not parse the file: ${note}`);
+    }
+    if (kind === 'png' && rasterEnabled()) {
+      // a raster plan: the floor-plan service reads the sheet (YOLO and the model), then it can be asked about
+      job.stage = 'analyzing';
+      analyze(s).then(() => finish(job, true))
+        .catch((e) => finish(job, false, e instanceof BudgetError || e instanceof RasterError ? e.message : `could not read the plan: ${e?.message ?? e}`));
+      return;
     }
     if (kind !== 'dxf') return finish(job, true);
     // DXF: draw the drawing so answers can be shown on it (a PDF is drawn by the browser); a failure here is not fatal
