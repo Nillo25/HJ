@@ -226,3 +226,57 @@ def find_scale_bar(img: np.ndarray) -> tuple[dict | None, float]:
     bx0, by0, bx1, by1 = r["bbox"]
     return {"length": r["length"], "unit": r["unit"],
             "bbox": [x0 + bx0 / k, y0 + by0 / k, x0 + bx1 / k, y0 + by1 / k]}, cost
+
+
+# ---------------- помещения без подписей ----------------
+ROOMS_SCHEMA = {"type": "object", "properties": {"rooms": {"type": "array", "items": {
+    "type": "object", "properties": {
+        "name": {"type": "string", "description": "name written in the room, else a short description"},
+        "named_on_sheet": {"type": "boolean"},
+        "bbox": {"type": "array", "items": _num, "description": "[x0,y0,x1,y1] of the room's inner wall faces"}},
+    "required": ["name", "named_on_sheet", "bbox"], "additionalProperties": False}}},
+    "required": ["rooms"], "additionalProperties": False}
+
+
+def find_rooms(img: np.ndarray, region=None) -> tuple[list[dict], float]:
+    """Узкий вызов VLM для листов без подписей помещений (трубопроводы, конструкции): рамки помещений здания.
+    Модель YOLO обучена на квартирах и на таких листах помещений почти не видит, а стены и трубы нарисованы
+    одинаковыми тонкими линиями — отличить их по геометрии нельзя. Рамки потом прижимаются к линиям стен
+    (fp.rooms_cv.snap_room_bbox). Возвращает ([{"name","named","bbox"}] в пикселях картинки, стоимость $)."""
+    import anthropic
+    h, w = img.shape[:2]
+    x0 = y0 = 0
+    x1, y1 = w, h
+    if region and len(region) == 4:
+        px, py = 0.03 * w, 0.03 * h
+        x0, y0 = int(max(0, region[0] - px)), int(max(0, region[1] - py))
+        x1, y1 = int(min(w, region[2] + px)), int(min(h, region[3] + py))
+    data, k = _png(img[y0:y1, x0:x1], FULL_SIDE)
+    tw, th = round((x1 - x0) * k), round((y1 - y0) * k)
+    content = [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}},
+               {"type": "text", "text": (
+                   f"This is a building plan drawing ({tw}x{th} px). List every ROOM of the building: each space "
+                   "fully enclosed by walls (including mechanical / pump rooms, electrical rooms, toilets, storage, "
+                   "corridors). A room full of pipes or equipment is still ONE room - its boundary is the walls, "
+                   "not the pipes. Do NOT list: pipes, tanks, pits, equipment, outdoor pads or slabs outside the "
+                   "walls, detail callouts, notes, the title block, the building's outer wall band or column grid "
+                   "strip. For each room: the name written in it (named_on_sheet=true), or a short description "
+                   "such as 'pump room' (named_on_sheet=false); bbox of the room's inner wall faces in this "
+                   "image's pixels. If there are no walls at all, return an empty list.")}]
+    resp = anthropic.Anthropic().messages.create(
+        model=VLM_MODEL, max_tokens=3000,
+        output_config={"effort": "low", "format": {"type": "json_schema", "schema": ROOMS_SCHEMA}},
+        messages=[{"role": "user", "content": content}])
+    pin, pout = PRICES.get(VLM_MODEL, (4.0, 20.0))
+    cost = (resp.usage.input_tokens * pin + resp.usage.output_tokens * pout) / 1e6
+    if resp.stop_reason == "refusal":
+        return [], cost
+    r = json.loads(next(b.text for b in resp.content if b.type == "text"))
+    out = []
+    for rm in r["rooms"]:
+        b = rm["bbox"]
+        if len(b) != 4 or b[2] <= b[0] or b[3] <= b[1]:
+            continue
+        out.append({"name": rm["name"], "named": rm["named_on_sheet"],
+                    "bbox": [x0 + b[0] / k, y0 + b[1] / k, x0 + b[2] / k, y0 + b[3] / k]})
+    return out, cost

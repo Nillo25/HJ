@@ -440,3 +440,98 @@ def test_rule_reply_in_english():
     sc = Scene.build("x", 500, 500, [("door", sq(10, 10, 20), 0.97)])
     out = chat(sc, "how many doors", use_llm=False)
     assert out["parsed_by"] == "cache" and out["reply"].startswith("Found door: 1")
+
+
+def _walls_sheet():
+    """Лист 1000×700: комната A (чистая) и зал B, забитый «трубами» (сетка линий), стены — тонкие двойные линии."""
+    import cv2
+    import numpy as np
+    img = np.full((700, 1000, 3), 255, np.uint8)
+    for d in (0, 4):  # двойные линии стен
+        cv2.rectangle(img, (100 - d, 100 - d), (900 + d, 600 + d), (150, 150, 150), 1)
+        cv2.line(img, (300 + d, 100), (300 + d, 600), (150, 150, 150), 1)
+    for x in range(340, 900, 60):  # трубы в зале B — дробят пол на ячейки
+        cv2.line(img, (x, 100), (x, 600), (0, 0, 0), 1)
+    for y in range(150, 600, 70):
+        cv2.line(img, (300, y), (900, y), (0, 0, 0), 1)
+    cv2.line(img, (320, 130), (880, 130), (0, 0, 0), 2)  # длинная труба вдоль верхней стены
+    return img
+
+
+def test_rooms_from_bbox_snaps_to_walls_and_fills_clean_room():
+    import cv2
+    from fp.rooms_cv import rooms_from_bbox
+    g = cv2.cvtColor(_walls_sheet(), cv2.COLOR_BGR2GRAY)
+    a = rooms_from_bbox(g, [120, 115, 285, 580], 50.0)            # рамка VLM чуть внутри комнаты A
+    assert len(a) == 1 and a[0]["how"] == "fill"
+    assert abs(a[0]["area_px2"] - 199 * 499) / (199 * 499) < 0.03
+    b = rooms_from_bbox(g, [318, 112, 893, 590], 50.0)           # зал с трубами: заливка дробится -> рамка
+    assert len(b) == 1 and b[0]["how"] == "bbox" and b[0]["sides_snapped"] == 4
+    xs = [p[0] for p in b[0]["polygon"]]
+    ys = [p[1] for p in b[0]["polygon"]]
+    # прижато к стенам (305..899 × 101..599), а не к трубе вдоль верхней стены (y=130)
+    assert abs(min(xs) - 305) <= 3 and abs(max(xs) - 899) <= 3 and abs(min(ys) - 101) <= 3 and abs(max(ys) - 599) <= 3
+
+
+def test_rooms_by_walls_replaces_model_rooms(monkeypatch):
+    from fp import infer, sheet
+    from fp.query import call
+    from fp.scene import Scene
+    sq = lambda x, y, s: [(x, y), (x + s, y), (x + s, y + s), (x, y + s)]
+    sc = Scene.build("x", 1000, 700, [("room_outdoor", sq(920, 620, 40), 0.3), ("toilet", sq(150, 150, 30), 0.9)],
+                     meta={"px_per_m": 50.0})
+    monkeypatch.setattr(sheet, "find_rooms", lambda img, region=None: (
+        [{"name": "WC", "named": True, "bbox": [120, 115, 285, 580]},
+         {"name": "pump room", "named": False, "bbox": [318, 112, 893, 590]}], 0.0003))
+    rows = infer.rooms_by_walls(_walls_sheet(), sc, {"drawing_bbox": None})
+    assert [r["id"] for r in rows] == ["bath_1", "other_1"]
+    assert sc.meta["yolo_rooms_replaced"] == ["outdoor_1"] and [r.id for r in sc.rooms] == ["bath_1", "other_1"]
+    assert [o.room for o in sc.objects if o.cls == "toilet"] == ["bath_1"]
+    from fp.spaces import build
+    build(_walls_sheet(), sc)
+    a = call(sc, "rooms", {})
+    assert [r["name"] for r in a.answer["rooms"]] == ["WC", "pump room"]
+    assert abs(a.answer["rooms"][1]["area_m2"] - 594 * 498 / 2500) < 1.5 and a.confidence == "medium"
+
+
+def test_area_labels_two_far_apart_estimates_do_not_crash():
+    from fp.scale import from_area_labels
+    from fp.scene import Scene
+    sq = lambda x, y, s: [(x, y), (x + s, y), (x + s, y + s), (x, y + s)]
+    sc = Scene.build("x", 800, 800, [("room_kitchen", sq(0, 0, 100), 0.9), ("room_bath", sq(300, 0, 300), 0.9)])
+    r = from_area_labels(sc, [{"value_m2": 10, "x": 50, "y": 50}, {"value_m2": 10, "x": 450, "y": 150}])
+    assert r is not None and r["px_per_m"] > 0 and r["confidence"] == "low"
+
+
+@pytest.mark.parametrize("msg,expected", [
+    ("How many sinks and wash basins (kitchen and bathroom combined; a double-bowl sink counts as one) are drawn "
+     "on this floor plan?", ("count", {"cls": "sink"})),
+    ("How many showers and bathtubs are drawn on this floor plan in total?", ("highlight", {"cls": "shower_bathtub"})),
+    ("How many separate WC rooms (toilet rooms marked WC) are on this floor plan?", ("count", {"cls": "wc_room"})),
+    ("How many floors (storeys) does this floor plan show?", ("count", {"cls": "floor"})),
+    ("How many balconies (parveke, including glazed balconies) are on this floor plan?",
+     ("count", {"cls": "room_outdoor"})),
+    ("How many bathrooms or washrooms (e.g. KH, KPH, PH, PESUH, SH) are on this floor plan, not counting separate "
+     "WC rooms?", ("count", {"cls": "room_bath"})),
+    ("How many toilet bowls (WC seats) are drawn on this floor plan?", ("count", {"cls": "toilet"})),
+    ("сколько этажей", ("count", {"cls": "floor"})),
+])
+def test_rule_parser_stoa_questions(msg, expected):
+    assert parse_rule(msg) == expected
+
+
+def test_count_routes_between_model_and_inventory(monkeypatch):
+    from fp import query
+    from fp.scene import Scene
+    sq = lambda x, y, s: [(x, y), (x + s, y), (x + s, y + s), (x, y + s)]
+    sc = Scene.build("x", 500, 500, [("sink", sq(10, 10, 20), 0.97), ("toilet", sq(100, 10, 20), 0.97)])
+    sc.meta["inventory"] = {"sinks": 2, "toilets": 1, "floors": 2, "wc_rooms": 1}
+    monkeypatch.setattr(query, "ROUTE", {"sink": "inventory", "toilet": "yolo"})
+    s = query.count(sc, "sink")                     # отвечает опись, подсвечено распознанное, разошлись на 1
+    assert s.answer == 2 and s.ids == ["s1"] and s.confidence == "medium"
+    t = query.count(sc, "toilet")                   # отвечает модель, опись согласна -> high
+    assert t.answer == 1 and t.confidence == "high"
+    assert query.count(sc, "floor").answer == 2     # классов нет в YOLO — только опись
+    assert query.count(sc, "sink", room="kitchen").answer == 0   # по комнате — только модель
+    sc.meta.pop("inventory")
+    assert query.count(sc, "floor").answer is None and query.count(sc, "sink").answer == 1

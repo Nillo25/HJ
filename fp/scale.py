@@ -54,7 +54,9 @@ def from_area_labels(scene: Scene, labels: list[dict]) -> dict | None:
         used.append({"room": room.id, "label_m2": v, "text": lb.get("text")})
     if not est:
         return None
-    med = statistics.median(est)
+    # median_low — одна из оценок: при чётном числе подписей среднее двух далёких значений не совпало бы
+    # ни с одной, и «согласованных» не осталось бы (падение на high_quality_architectural-18)
+    med = statistics.median_low(est)
     # согласованность: насколько оценки по разным комнатам совпадают
     good = [e for e in est if abs(e / med - 1) <= 0.15]
     spread = (max(good) / min(good) - 1) if len(good) > 1 else None

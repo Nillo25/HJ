@@ -63,7 +63,13 @@ SYNONYMS = {
     "room_bath": ["санузл", "санузел", "ванная комната", "ванные комнаты", "bathroom"],
     "room_entry": ["прихож", "коридор", "холл", "entry", "hall"],
     "room_storage": ["кладов", "гардероб", "storage", "closet"],
-    "room_outdoor": ["балкон", "террас", "outdoor"],
+    "room_outdoor": ["балкон", "террас", "outdoor", "balcon", "parveke", "terrace"],
+    # виртуальные классы (ответ — из описи плана, fp/inventory.py; YOLO — для сверки, где есть)
+    "shower_bathtub": ["души и ванн", "душей и ванн", "душевых и ванн", "showers and bathtubs",
+                       "showers and baths", "shower and bathtub", "showers or bathtubs"],
+    "wc_room": ["wc room", "wc-room", "toilet room", "туалетных комнат", "туалетные комнат", "отдельных туалет",
+                "отдельные туалет", "отдельных wc"],
+    "floor": ["floors", "storeys", "storey", "stories", "этаж"],
     "sauna": ["саун", "sauna", "bastu"],          # виртуальный: помещения со скамьями сауны
     "sauna_bench": ["скамь", "полок"],
     "room": ["комнат", "помещен", "room"],
@@ -74,7 +80,8 @@ LABELS_RU = {
     "sink": "раковины", "bathtub": "ванны", "shower": "душевые",
     "room_living": "гостиные", "room_bedroom": "спальни", "room_kitchen": "кухни",
     "room_bath": "санузлы", "room_entry": "прихожие/коридоры", "room_storage": "кладовые",
-    "room_outdoor": "балконы/террасы", "room_other": "прочие помещения", "sauna_bench": "скамьи сауны", "sauna": "сауны", "zone": "зоны легенды", "space": "помещения (по подписям)",
+    "room_outdoor": "балконы/террасы", "room_other": "прочие помещения", "sauna_bench": "скамьи сауны", "sauna": "сауны", "zone": "зоны легенды", "space": "помещения (экспликация)",
+    "shower_bathtub": "души и ванны", "wc_room": "туалетные комнаты (WC)", "floor": "этажи",
 }
 
 # Цвета оверлея (и для визуальной проверки, и для фронта)

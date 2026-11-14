@@ -37,11 +37,17 @@ def _room_ref(text: str) -> tuple[str | None, tuple[int, int] | None]:
 
 
 def _find_class(text: str) -> str | None:
-    best, best_len = None, 0
+    """Класс по ПЕРВОМУ упоминанию, при равенстве — по самому длинному слову. В длинных вопросах
+    («How many sinks and wash basins (kitchen and bathroom combined)…») предмет вопроса стоит первым,
+    а комнаты в скобках — уточнения; раньше побеждало самое длинное слово, и вопрос о раковинах
+    превращался в подсчёт санузлов."""
+    best, key = None, None
+    t = text.replace("floor plan", "floor_plan")  # «план этажа» — не вопрос об этажах
     for cls, words in SYNONYMS.items():
         for w in words:
-            if w in text and len(w) > best_len:
-                best, best_len = cls, len(w)
+            i = t.find(w)
+            if i >= 0 and (key is None or (i, -len(w)) < key):
+                best, key = cls, (i, -len(w))
     return best
 
 
@@ -73,7 +79,8 @@ def parse_rule(message: str) -> tuple[str, dict] | None:
     if room:
         args["room"] = room
     # «покажи … и сколько» — подсветка: она тоже возвращает число, а план подсвечен
-    if re.search(r"выдел|подсвет|покажи|показать|отмет|найди|где\b|highlight|show|find", t):
+    if cls not in ("floor", "wc_room") and \
+            re.search(r"выдел|подсвет|покажи|показать|отмет|найди|где\b|highlight|show|find", t):
         return "highlight", args
     if re.search(r"сколько|посчит|количеств|how many|\bcount\b", t):
         return "count", args
@@ -200,8 +207,8 @@ def chat(scene: Scene, message: str, history: list[dict] | None = None, use_llm:
     # а не подсчётом детекций (модель обучена на квартирах CubiCasa и на других листах даёт шум)
     sheet = scene.meta.get("sheet") or {}
     low = message.lower()
-    if rule and rule[0] == "count" and sheet.get("tables") and \
-            re.search(r"этаж|лист|таблиц|всего|итог|floor|sheet|total|table", low):
+    if rule and rule[0] == "count" and rule[1].get("cls") != "floor" and sheet.get("tables") and \
+            re.search(r"этаж|лист|таблиц|всего|итог|floor(?! plan)|sheet|total|table", low):
         rule = None
     # вопрос про легенду или со словом из неё (circulation, dormitory…) — к данным листа, не к детекциям
     legend_words = {w for lg in sheet.get("legend", []) for w in re.findall(r"[a-zа-яё]{4,}", lg["label"].lower())}

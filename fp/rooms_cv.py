@@ -257,3 +257,118 @@ def spaces_from_labels(img: np.ndarray, labels: list[dict], px_per_m: float, doo
                     "doors": len(door_w), "door_width_m": round(sum(door_w) / px_per_m, 2),
                     "baseboard_m": round(max(0.0, perim - sum(door_w)) / px_per_m, 2)})
     return out
+
+
+# ---------------- рамка помещения от VLM -> стороны по линиям стен ----------------
+def _line_profile(dark: np.ndarray, axis: int, lo: int, hi: int, a: int, b: int) -> np.ndarray:
+    """Доля тёмных пикселей вдоль отрезка [a, b] для каждой позиции lo..hi.
+    axis=0 — горизонтальные линии (позиция = y), axis=1 — вертикальные (позиция = x).
+    Соседние ±1 px объединяются: линия после выравнивания листа бывает наклонена на пиксель."""
+    if axis == 0:
+        band = dark[lo:hi + 1, a:b + 1]
+    else:
+        band = dark[a:b + 1, lo:hi + 1].T
+    if band.size == 0:
+        return np.zeros(0)
+    band = np.maximum(band, np.vstack([band[1:], band[-1:]]))
+    band = np.maximum(band, np.vstack([band[:1], band[:-1]]))
+    return band.mean(1)
+
+
+def snap_room_bbox(gray: np.ndarray, bbox, px_per_m: float, min_cover: float = 0.45) -> tuple[list[int], int]:
+    """Каждую сторону рамки прижать к линии стены рядом: ищем в полосе ±max(0.6 м, 10% стороны) позицию,
+    где вдоль стороны много тёмных пикселей (стена прерывается только проёмами). Трубы вдоль стены тоже
+    дают длинные линии, поэтому среди линий длиной ≥ min_cover берём ближнюю к краю от VLM.
+    Возвращает (рамка [x0,y0,x1,y1], сколько сторон прижато из 4)."""
+    h, w = gray.shape
+    dark = (gray < 200).astype(np.float32)
+    x0, y0, x1, y1 = [int(round(v)) for v in bbox]
+    x0, x1 = max(0, min(x0, x1)), min(w - 1, max(x0, x1))
+    y0, y1 = max(0, min(y0, y1)), min(h - 1, max(y0, y1))
+    out, snapped = [x0, y0, x1, y1], 0
+    for i, (axis, pos, a, b, inward) in enumerate((
+            (1, x0, y0, y1, +1), (0, y0, x0, x1, +1), (1, x1, y0, y1, -1), (0, y1, x0, x1, -1))):
+        side = b - a
+        r = int(max(0.6 * px_per_m, 0.10 * side))
+        lim = h - 1 if axis == 0 else w - 1
+        lo, hi = max(0, pos - r), min(lim, pos + r)
+        # не берём концы стороны: там примыкают поперечные стены
+        m = int(0.1 * side)
+        prof = _line_profile(dark, axis, lo, hi, a + m, b - m)
+        if not prof.size or prof.max() < min_cover:
+            continue
+        # край от VLM в целом верен, а рядом могут идти трубы вдоль стены: из достаточно длинных линий берём
+        # ту, что лучше всего сочетает длину и близость к краю VLM
+        pos_all = np.arange(lo, lo + len(prof))
+        score = np.where(prof >= min_cover, prof * (1 - 0.6 * np.abs(pos_all - pos) / max(r, 1)), -1)
+        best = int(pos_all[score.argmax()])
+        out[i] = best + inward  # пол начинается за линией
+        snapped += 1
+    return out, snapped
+
+
+def _fill_holes(reg: np.ndarray) -> np.ndarray:
+    cnts, _ = cv2.findContours(reg.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    out = np.zeros(reg.shape, np.uint8)
+    cv2.drawContours(out, [max(cnts, key=cv2.contourArea)], -1, 1, thickness=cv2.FILLED)
+    return out > 0
+
+
+def rooms_from_bbox(gray: np.ndarray, bbox, px_per_m: float, barrier: np.ndarray | None = None) -> list[dict]:
+    """Помещение по рамке от VLM.
+    1. Стороны рамки прижимаются к линиям стен (snap_room_bbox).
+    2. Заливки свободного пола от точек сетки внутри рамки. Замкнутая заливка, покрывающая ≥ 60% рамки, —
+       это само помещение (точная форма, в том числе Г-образная, и рамка VLM могла быть уже комнаты).
+       Несколько замкнутых заливок целиком внутри рамки, вместе ≥ 60% её, — VLM слила соседние помещения.
+       Остаток рамки вне этих частей — отдельные помещения how="rest" (контур приблизительный).
+    3. Иначе (помещение раздроблено трубами и оборудованием) — прижатая рамка.
+    Возвращает [{"polygon", "area_px2", "how": "fill"|"split"|"rest"|"bbox", "sides_snapped"}]."""
+    h, w = gray.shape
+    (x0, y0, x1, y1), sides = snap_room_bbox(gray, bbox, px_per_m)
+    A = max(1, (x1 - x0) * (y1 - y0))
+    bar = barrier if barrier is not None else barrier_mask(gray)
+    regions, seen = [], np.zeros((h, w), bool)
+    for fy in np.linspace(0.1, 0.9, 5):
+        for fx in np.linspace(0.1, 0.9, 5):
+            x, y = int(x0 + fx * (x1 - x0)), int(y0 + fy * (y1 - y0))
+            if not (0 <= x < w and 0 <= y < h) or bar[y, x] or seen[y, x]:
+                continue
+            reg = _flood(bar, x, y)
+            seen |= reg
+            n = int(reg.sum())
+            ys, xs = np.nonzero(reg)
+            if n > 2.5 * A or n < max(1.0 * px_per_m ** 2, 0.1 * A) or xs.min() == 0 or ys.min() == 0 \
+                    or xs.max() >= w - 1 or ys.max() >= h - 1:
+                continue
+            reg = _fill_holes(reg)
+            inside = int(reg[y0:y1, x0:x1].sum())
+            regions.append((reg, inside / A, inside / max(1, reg.sum())))
+
+    def poly(mask):
+        cnts, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        c = max(cnts, key=cv2.contourArea)
+        return cv2.approxPolyDP(c, 2.0, True).reshape(-1, 2).tolist()
+    whole = [r for r in regions if r[1] >= 0.6]
+    if whole:
+        reg = max(whole, key=lambda r: r[1])[0]
+        return [{"polygon": poly(reg), "area_px2": float(reg.sum()), "how": "fill", "sides_snapped": sides}]
+    parts = [r[0] for r in regions if r[2] >= 0.9]
+    if parts and sum(p[y0:y1, x0:x1].sum() for p in parts) >= 0.6 * A:
+        out = [(p, "split") for p in parts]
+        # остаток рамки, не покрытый замкнутыми частями (часть, загромождённая оборудованием или лестницей):
+        # тоже помещение, иначе его площадь потеряется
+        k = max(3, int(0.3 * px_per_m)) | 1
+        taken = cv2.dilate(np.any(parts, axis=0).astype(np.uint8), np.ones((k, k), np.uint8)) > 0
+        rest = np.zeros((h, w), np.uint8)
+        rest[y0:y1, x0:x1] = 1
+        rest[taken] = 0
+        ko = max(3, int(0.6 * px_per_m)) | 1
+        rest = cv2.morphologyEx(rest, cv2.MORPH_OPEN, np.ones((ko, ko), np.uint8))
+        nl, lab, st, _ = cv2.connectedComponentsWithStats(rest, connectivity=4)
+        for i in range(1, nl):
+            if st[i][4] >= max(1.0 * px_per_m ** 2, 0.05 * A):
+                out.append((lab == i, "rest"))
+        out.sort(key=lambda t: tuple(np.argwhere(t[0])[0]))  # сверху вниз, слева направо
+        return [{"polygon": poly(p), "area_px2": float(p.sum()), "how": how, "sides_snapped": sides} for p, how in out]
+    rect = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+    return [{"polygon": rect, "area_px2": float(A), "how": "bbox", "sides_snapped": sides}]

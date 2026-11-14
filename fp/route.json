@@ -1,0 +1,14 @@
+{
+ "door": "yolo",
+ "floor": "inventory",
+ "room_bath": "inventory",
+ "room_bedroom": "inventory",
+ "room_kitchen": "inventory",
+ "room_outdoor": "inventory",
+ "sauna": "inventory",
+ "shower_bathtub": "inventory",
+ "sink": "inventory",
+ "toilet": "yolo",
+ "wc_room": "inventory",
+ "window": "yolo"
+}

@@ -34,7 +34,7 @@ def simplify(poly: np.ndarray, cls: str) -> list:
 
 
 # менять при правках разбора, влияющих на сцену: повторная загрузка того же файла тогда разберёт его заново
-PIPELINE_VERSION = "2026-11-14.ids"
+PIPELINE_VERSION = "2026-11-14.inventory"
 
 THRESHOLDS = json.loads((Path(__file__).parent / "thresholds.json").read_text())
 
@@ -245,9 +245,23 @@ def analyze_sheet(img: np.ndarray, sc: Scene) -> Scene:
         zid = f"zone{n}"
         sc.objects.append(Element(zid, "zone", z["polygon"], 0.8, source="legend"))
         sc.meta["zones"][zid] = {"label": z["label"], "color": z["color"]}
+    # чертёжный лист без подписей помещений (трубопроводы, конструкции): помещения по стенам, рамки от VLM
+    if est.get("px_per_m") and tb.get("sheet_number") and not sheet.get("area_labels"):
+        rooms_by_walls(img, sc, sheet)
     # помещения: площади и плинтусы (подписи + заливка по стенам + контуры модели)
     from .spaces import build as build_spaces
     build_spaces(img, sc)
+    # опись плана: один вызов сильной модели — сколько чего по 12 типам вопросов (fp/inventory.py);
+    # на какие вопросы она отвечает, а где только сверяет YOLO — fp/route.json
+    if os.environ.get("FP_INVENTORY", "1") != "0":
+        from .inventory import read_inventory
+        try:
+            inv, c3 = read_inventory(img)
+            inv["cost_usd"] = round(c3, 6)
+        except Exception as e:  # noqa: BLE001 — без описи ответы идут от YOLO
+            inv, c3 = {"error": f"{type(e).__name__}: {e}"}, 0.0
+        sc.meta["inventory"] = inv
+        sc.meta["sheet_cost_usd"] = round(sc.meta.get("sheet_cost_usd", 0) + c3, 6)
     # второе мнение ИИ по сантехнике — только для уверенности, детекции не меняет (fp/arbiter.py)
     from .arbiter import check_fixtures
     sc.meta["fixture_check"] = check_fixtures(img, sc)
@@ -269,3 +283,66 @@ def main(argv=None):
 
 if __name__ == "__main__":
     main()
+
+
+_ROOM_WORDS = {"room_bath": ("toilet", "restroom", "bath", "wc", "lavatory", "shower", "туалет", "санузел"),
+               "room_storage": ("storage", "store", "closet", "janitor", "кладов"),
+               "room_entry": ("corridor", "hall", "vestibule", "lobby", "entry", "коридор", "холл"),
+               "room_kitchen": ("kitchen", "кухня")}
+
+
+def _room_cls(name: str) -> str:
+    n = name.lower()
+    return next((c for c, words in _ROOM_WORDS.items() if any(w in n for w in words)), "room_other")
+
+
+def rooms_by_walls(img: np.ndarray, sc: Scene, sheet: dict) -> list[dict]:
+    """Помещения листа, где модель их не видит (обучена на квартирах), а подписей комнат нет.
+    Один узкий вызов VLM даёт рамки помещений, код прижимает их к линиям стен и уточняет заливкой
+    (fp.rooms_cv.rooms_from_bbox). Площадь и периметр считает код, не VLM. Помещения модели на таком листе —
+    в основном шум (графы штампа, площадки снаружи), поэтому они заменяются; их id — в meta."""
+    from .rooms_cv import barrier_mask, rooms_from_bbox
+    from .scene import Element, reading_key
+    from .sheet import find_rooms
+    try:
+        found, cost = find_rooms(img, sheet.get("drawing_bbox"))
+    except Exception as e:  # noqa: BLE001
+        sc.meta["wall_rooms_note"] = f"VLM не ответила: {e}"
+        return []
+    sc.meta["sheet_cost_usd"] = round(sc.meta.get("sheet_cost_usd", 0) + cost, 6)
+    if not found:
+        sc.meta["wall_rooms"] = []
+        return []
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
+    bar = barrier_mask(gray)
+    ppm = sc.meta["px_per_m"]
+    rows = []
+    for rm in found:
+        parts = rooms_from_bbox(gray, rm["bbox"], ppm, barrier=bar)
+        for i, p in enumerate(parts, 1):
+            name = rm["name"] if len(parts) == 1 else f"{rm['name']} · {i}"
+            rows.append({**p, "name": name, "named": rm["named"], "vlm_bbox": [round(v) for v in rm["bbox"]]})
+    # одна и та же область из двух рамок (VLM повторилась или заливка вышла за рамку) — оставляем первую
+    from shapely.geometry import Polygon
+    keep = []
+    for r in rows:
+        a = Polygon(r["polygon"]).buffer(0)
+        if all(a.intersection(Polygon(k["polygon"]).buffer(0)).area < 0.5 * min(a.area, Polygon(k["polygon"]).area)
+               for k in keep):
+            keep.append(r)
+    keep.sort(key=lambda r: reading_key(r["polygon"], sc.height))
+    sc.meta["yolo_rooms_replaced"] = [r.id for r in sc.rooms]
+    counters: dict = {}
+    sc.rooms = []
+    for r in keep:
+        cls = _room_cls(r["name"])
+        counters[cls] = counters.get(cls, 0) + 1
+        r["id"] = f"{cls.removeprefix('room_')}_{counters[cls]}"
+        # уверенность: точный контур заливкой или рамка, прижатая к стенам со всех сторон — средняя
+        r["confidence"] = "medium" if r["how"] in ("fill", "split") or (r["how"] == "bbox" and r["sides_snapped"] == 4) \
+            else "low"
+        conf = {"medium": 0.75, "low": 0.5}[r["confidence"]]
+        sc.rooms.append(Element(r["id"], cls, [[float(x), float(y)] for x, y in r["polygon"]], conf, source="vlm+walls"))
+    sc.meta["wall_rooms"] = keep
+    sc.assign_rooms()
+    return keep

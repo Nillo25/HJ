@@ -68,11 +68,26 @@ def _ev(e: Element) -> dict:
     return {"kind": e.source, "id": e.id, "class": e.cls, "conf": round(e.conf, 2), "room": e.room}
 
 
+# опись плана (fp/inventory.py): класс чата -> ключ описи
+INV_KEY = {"window": "windows", "door": "doors", "toilet": "toilets", "sink": "sinks",
+           "shower_bathtub": "showers_and_bathtubs", "sauna": "saunas", "room_kitchen": "kitchens",
+           "room_bedroom": "bedrooms", "wc_room": "wc_rooms", "room_bath": "bathrooms", "room_outdoor": "balconies",
+           "floor": "floors"}
+VIRTUAL = {"wc_room", "floor"}   # классов нет в YOLO
+# какой источник отвечает: решено по планам train+val eval_set (scripts/eval_stoa.py route), отчёт — по test
+ROUTE_FILE = _Path(__file__).parent / "route.json"
+ROUTE = _json.loads(ROUTE_FILE.read_text()) if ROUTE_FILE.exists() else {}
+
+
 def _resolve_classes(cls: str) -> list[str]:
     if cls == "room":
         return sorted(ROOM_CLASSES)
     if cls == "sauna":
         return ["sauna_bench"]
+    if cls == "shower_bathtub":
+        return ["shower", "bathtub"]
+    if cls in ("wc_room", "floor"):
+        return []
     if cls not in CLASSES:
         raise ValueError(f"неизвестный класс {cls!r}; доступны: {', '.join(CLASSES + ['room'])}")
     return [cls]
@@ -121,6 +136,41 @@ def _select(scene: Scene, cls: str, room: str | None, primary: bool):
 
 
 def count(scene: Scene, cls: str, room: str | None = None) -> Answer:
+    """Подсчёт. Без комнаты и при наличии описи плана — источник по маршруту (ROUTE), второй источник —
+    сверка: совпали -> уверенность высокая, разошлись -> на ступень ниже. С комнатой — только YOLO
+    (опись не знает, что в какой комнате)."""
+    inv = scene.meta.get("inventory") or {}
+    key = INV_KEY.get(cls)
+    if room or not key or key not in inv:
+        if cls in VIRTUAL:
+            why = "по комнатам не считается" if room else "нет описи плана — загрузите план заново"
+            return Answer(None, confidence="low", score=0.3, note=f"{LABELS_RU.get(cls, cls)}: {why}")
+        return _count_yolo(scene, cls, room)
+    v = int(inv[key])
+    y = None if cls in VIRTUAL else _count_yolo(scene, cls, None)
+    src = ROUTE.get(cls, "inventory" if y is None else "yolo")
+    order = ["low", "medium", "high"]
+    ev = [{"kind": "inventory", "class": cls, "count": v, "model": inv.get("model")}]
+    if y is None:  # второго источника нет
+        return Answer(v, "шт", "medium", 0.8, [], ev, "по описи плана (ИИ по картинке)")
+    agree = y.answer == v
+    if src == "yolo":
+        a = y
+        if agree:
+            a.confidence, a.score = "high", max(a.score, AGREE_FLOOR)
+        else:
+            a.confidence = order[max(0, order.index(a.confidence) - 1)]
+            extra = f"опись плана (ИИ по картинке): {v}"
+            a.note = f"{a.note}; {extra}" if a.note else extra
+        a.evidence = a.evidence + ev
+        return a
+    # отвечает опись; подсвечиваем найденное моделью (что есть на плане), число — из описи
+    lvl = "high" if agree else "medium" if abs(y.answer - v) == 1 else "low"
+    note = None if agree else f"на плане распознано {y.answer}, по описи {v} — подсвечено распознанное"
+    return Answer(v, "шт", lvl, AGREE_FLOOR if agree else 0.6, y.ids, ev + y.evidence, note)
+
+
+def _count_yolo(scene: Scene, cls: str, room: str | None = None) -> Answer:
     if room and not _find_room(scene, room):
         return Answer(0, confidence="low", score=0.3, note=f"комната {room!r} не найдена")
     items = _select(scene, cls, room, True)
@@ -353,9 +403,15 @@ def rooms(scene: Scene, name: str | None = None) -> Answer:
     rough = [r["name"] for r in ok if r.get("baseboard_note")]
     if rough:
         notes.append(f"неровный контур, плинтус может быть завышен: {', '.join(rough)}")
-    low = [r["name"] for r in ok if r["confidence"] == "low" and not r.get("baseboard_note")]
+    rough_box = [r["name"] for r in ok if r["confidence"] == "low" and r.get("area_source", "").startswith("рамка")]
+    if rough_box:
+        notes.append(f"контур приблизительный (стены найдены не со всех сторон): {', '.join(rough_box)}")
+    low = [r["name"] for r in ok if r["confidence"] == "low" and not r.get("baseboard_note")
+           and r["name"] not in rough_box]
     if low:
         notes.append(f"источники разошлись: {', '.join(low)}")
+    if scene.meta.get("wall_rooms"):
+        notes.append("подписей помещений на листе нет — помещения найдены по стенам, названия даны ИИ")
     ids = [r["id"] for r in ok if r.get("id")]
     return Answer({"rooms": rows, "total": total}, "m2/m", level(score), round(score, 2), ids,
                   [{"kind": "space", "id": r.get("id"), "name": r["name"], "source": r.get("area_source")} for r in ok],
@@ -363,7 +419,7 @@ def rooms(scene: Scene, name: str | None = None) -> Answer:
 
 
 # --- описание инструментов для LLM (Claude tool calling) ---
-_CLS_ENUM = CLASSES + ["room", "sauna"]
+_CLS_ENUM = CLASSES + ["room", "sauna", "shower_bathtub", "wc_room", "floor"]
 TOOLS = [
     {"name": "highlight", "description": "Подсветить на плане все объекты класса (опционально только в указанной комнате). Возвращает количество, id и уверенность.",
      "input_schema": {"type": "object", "properties": {

@@ -53,6 +53,8 @@ def build(img: np.ndarray, scene: Scene) -> list[dict]:
     # sp1, sp2… — в порядке чтения листа, а не в порядке, в котором ИИ перечислил подписи
     labels.sort(key=lambda lb: reading_key([[lb["x"], lb["y"]]], scene.height))
     scene.objects = [o for o in scene.objects if o.cls != "space"]
+    if px and not labels and scene.meta.get("wall_rooms"):
+        return _from_wall_rooms(scene, px)
     if not px or not labels:
         scene.meta["spaces"] = []
         scene.meta["spaces_note"] = "нужны масштаб и подписи помещений на плане" if labels else "на плане нет подписей помещений"
@@ -128,4 +130,29 @@ def build(img: np.ndarray, scene: Scene) -> list[dict]:
                        "baseboard_m": base, "baseboard_note": base_note, "doors": n_doors, "door_width_m": door_w,
                        "confidence": conf})
     scene.meta["spaces"] = spaces
+    return spaces
+
+
+def _from_wall_rooms(scene: Scene, px: float) -> list[dict]:
+    """Строки экспликации для помещений по стенам (лист без подписей, см. fp.infer.rooms_by_walls)."""
+    doors = [[*np.array(o.polygon).min(0), *np.array(o.polygon).max(0)] for o in scene.objects if o.cls == "door"]
+    how = {"fill": "контур по стенам", "split": "контур по стенам",
+           "rest": "рамка по стенам (остаток помещения, контур приблизительный)",
+           "bbox": "рамка по стенам (помещение загромождено оборудованием)"}
+    spaces = []
+    for n, r in enumerate(scene.meta["wall_rooms"], 1):
+        poly = r["polygon"]
+        area = Polygon(poly).buffer(0).area / px ** 2
+        dw = _doors_touching(poly, doors, px)
+        per = _simplified_perimeter(poly, px)
+        sid = f"sp{n}"
+        scene.objects.append(Element(sid, "space", poly, 0.75 if r["confidence"] == "medium" else 0.5,
+                                     source="vlm+walls"))
+        spaces.append({"id": sid, "room_id": r["id"], "name": r["name"], "ok": True, "area_m2": round(area, 2),
+                       "area_source": how[r["how"]], "label_m2": None, "fill_m2": round(area, 2) if r["how"] != "bbox" else None,
+                       "yolo_m2": None, "baseboard_m": round(float(max(0.0, per - sum(dw))), 2),
+                       "baseboard_note": None,
+                       "doors": len(dw), "door_width_m": round(sum(dw), 2), "confidence": r["confidence"]})
+    scene.meta["spaces"] = spaces
+    scene.meta["spaces_note"] = "подписей помещений на листе нет: помещения найдены по стенам (рамки от ИИ)"
     return spaces
