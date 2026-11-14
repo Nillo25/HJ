@@ -16,6 +16,15 @@ PREFIX = {"wall": "w", "door": "d", "window": "win", "toilet": "t", "sink": "s",
           "bathtub": "bt", "shower": "sh"}
 
 
+def _np(o):
+    """numpy-числа и массивы в meta (результаты OpenCV) -> обычные типы JSON."""
+    if hasattr(o, "item") and getattr(o, "ndim", 0) == 0:
+        return o.item()
+    if hasattr(o, "tolist"):
+        return o.tolist()
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+
+
 def reading_key(poly, height: float, band_frac: float = 0.02) -> tuple:
     """Ключ порядка чтения: полоса по y центра (2% высоты листа — чтобы дрожание в пару пикселей
     не меняло нумерацию), затем x центра, затем y."""
@@ -114,7 +123,7 @@ class Scene:
 
     def save(self, folder: Path):
         folder.mkdir(parents=True, exist_ok=True)
-        (folder / "scene.json").write_text(json.dumps(self.to_dict(), ensure_ascii=False, indent=1))
+        (folder / "scene.json").write_text(json.dumps(self.to_dict(), ensure_ascii=False, indent=1, default=_np))
         (folder / "scene.svg").write_text(self.to_svg(image_href=self.image))
 
     @classmethod

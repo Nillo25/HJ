@@ -82,6 +82,7 @@ LABELS_RU = {
     "room_bath": "санузлы", "room_entry": "прихожие/коридоры", "room_storage": "кладовые",
     "room_outdoor": "балконы/террасы", "room_other": "прочие помещения", "sauna_bench": "скамьи сауны", "sauna": "сауны", "zone": "зоны легенды", "space": "помещения (экспликация)",
     "shower_bathtub": "души и ванны", "wc_room": "туалетные комнаты (WC)", "floor": "этажи",
+    "pipe": "трубы", "fitting": "арматура и приборы",
 }
 
 # Цвета оверлея (и для визуальной проверки, и для фронта)
@@ -91,4 +92,5 @@ COLORS = {
     "room_living": "#f5d76e", "room_bedroom": "#a3d9a5", "room_kitchen": "#f7b267",
     "room_bath": "#9ad0ec", "room_entry": "#d7bde2", "room_storage": "#cccccc",
     "room_outdoor": "#b5e7a0", "room_other": "#eeeeee", "sauna_bench": "#e59866", "zone": "#7048e8", "space": "#1c7ed6",
+    "pipe": "#e8590c", "fitting": "#2b8a3e",
 }

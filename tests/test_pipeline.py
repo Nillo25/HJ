@@ -649,3 +649,51 @@ def test_count_falls_back_to_inventory_when_model_finds_none(monkeypatch):
     a = query.count(sc, "window")
     assert a.answer == 96 and a.confidence == "low" and "описи" in a.note
     assert query.count(sc, "door").answer == 0          # опись видит одну — это не повод отвечать по ней
+
+
+def _pipe_sheet():
+    """Лист 800×400, 50 px/м: труба 8" (двойная линия, 11 px) длиной 8 м с разрывом на клапан, стена из двух линий
+    по границе помещения, подписи читает «ИИ» (подставлены)."""
+    import cv2
+    import numpy as np
+    img = np.full((400, 800, 3), 255, np.uint8)
+    for y in (150, 161):                                    # труба: две линии через 11 px = 0.22 м ≈ 8"
+        cv2.line(img, (100, y), (380, y), (0, 0, 0), 1)
+        cv2.line(img, (400, y), (500, y), (0, 0, 0), 1)     # разрыв 20 px — клапан
+    for y in (40, 50):                                      # стена из двух линий по верху помещения
+        cv2.line(img, (20, y), (780, y), (0, 0, 0), 1)
+    cv2.line(img, (600, 300), (750, 300), (0, 0, 0), 1)     # малая труба 2" одной линией, 3 м
+    return img
+
+
+def test_piping_lengths_by_label_and_fittings_by_tag():
+    from fp.piping import build
+    from fp.query import fittings, pipes
+    from fp.scene import Scene
+    sc = Scene.build("x", 800, 400, [("room_other", [(20, 45), (780, 45), (780, 390), (20, 390)], 0.6)],
+                     meta={"px_per_m": 50.0})
+    items = [{"text": '8"', "kind": "pipe_size", "size_in": 8, "x": 200, "y": 120, "target_x": 200, "target_y": 156},
+             {"text": '2"', "kind": "pipe_size", "size_in": 2, "x": 650, "y": 280, "target_x": 650, "target_y": 300},
+             {"text": "CV-1", "kind": "valve", "size_in": 0, "x": 390, "y": 130, "target_x": 390, "target_y": 156},
+             {"text": "CV-2", "kind": "valve", "size_in": 0, "x": 450, "y": 130, "target_x": 450, "target_y": 156},
+             {"text": "PG", "kind": "instrument", "size_in": 0, "x": 300, "y": 200, "target_x": 300, "target_y": 200},
+             {"text": "PS-1", "kind": "support", "size_in": 0, "x": 250, "y": 190, "target_x": 250, "target_y": 161},
+             {"text": "PS-1", "kind": "support", "size_in": 0, "x": 450, "y": 190, "target_x": 450, "target_y": 161}]
+    sc.meta["piping"] = build(_pipe_sheet(), sc, items)
+    by = sc.meta["piping"]["by_size_m"]
+    assert abs(by["8"] - 7.6) <= 0.3          # 280 + 100 px = 7.6 м, разрыв на клапан — та же труба
+    assert abs(by["2"] - 3.0) <= 0.2
+    assert sum(sc.meta["piping"]["unlabeled_by_width_m"].values()) < 1.0   # стена из двух линий — не труба (15 м)
+    assert pipes(sc, 8).answer["total_m"] == by["8"]
+    f = fittings(sc).answer
+    assert f["CV"]["count"] == 2 and f["PG"]["count"] == 1 and f["PS"]["count"] == 2
+    assert fittings(sc, "valve").answer.keys() == {"CV"}
+
+
+def test_scene_save_handles_numpy_values(tmp_path):
+    import numpy as np
+    from fp.scene import Scene
+    sc = Scene.build("x", 10, 10, [])
+    sc.meta["piping"] = {"a0": np.int32(5), "w": np.float64(1.5), "arr": np.array([1, 2])}
+    sc.save(tmp_path)
+    assert Scene.load(tmp_path).meta["piping"] == {"a0": 5, "w": 1.5, "arr": [1, 2]}

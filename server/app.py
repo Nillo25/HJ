@@ -13,6 +13,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from fp import cache as answer_cache
@@ -111,7 +112,9 @@ async def upload(file: UploadFile = File(...), force: bool = False):
         tmp.write(data)
         tmp.flush()
         try:
-            sc = infer.run(Path(tmp.name), SCENES / plan_id, model=MODEL)
+            # разбор листа — 15-35 с (YOLO, вызовы ИИ, дуги): в отдельном потоке, иначе обработчик async
+            # держит цикл событий и сервер не отвечает ни на какие запросы, пока идёт загрузка
+            sc = await run_in_threadpool(infer.run, Path(tmp.name), SCENES / plan_id, model=MODEL)
         except ValueError as e:
             raise HTTPException(400, str(e))
     sc.meta.update(file_sha256=sha, pipeline=pipe, source_image=file.filename or sc.meta.get("source_image"))

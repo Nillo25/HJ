@@ -38,7 +38,7 @@ ARC_MIN_PPM = 33.0  # двери по дугам — только если дв�
 WALL_ROOMS_MIN_PPM = 20.0  # помещения по стенам (рамки от ИИ) — только если комната 3 м на листе ≥ 60 px
 
 # менять при правках разбора, влияющих на сцену: повторная загрузка того же файла тогда разберёт его заново
-PIPELINE_VERSION = "2026-11-14.dorm-fixes"
+PIPELINE_VERSION = "2026-11-14.piping3"
 
 THRESHOLDS = json.loads((Path(__file__).parent / "thresholds.json").read_text())
 
@@ -281,6 +281,11 @@ def analyze_sheet(img: np.ndarray, sc: Scene) -> Scene:
     # по окнам лучше, а полосы добавляют лишние (train+val eval_set: 41.5% -> 24.5%)
     if est.get("px_per_m") and drawing_sheet:
         add_glazing_windows(img, sc)
+    # лист трубопроводов: подписи диаметров и марки (ИИ), трубы по линиям (fp.piping)
+    title = str(tb.get("drawing_title") or "").upper()
+    if (est.get("px_per_m") or 0) >= ARC_MIN_PPM and drawing_sheet and \
+            ("PIPING" in title or "PIPE" in title or str(tb.get("sheet_number") or "").upper().startswith(("M", "P"))):
+        add_piping(img, sc)
     # помещения: площади и плинтусы (подписи + заливка по стенам + контуры модели)
     from .spaces import build as build_spaces
     build_spaces(img, sc)
@@ -466,3 +471,37 @@ def add_glazing_windows(img: np.ndarray, sc: Scene) -> dict:
             "model_windows": len(wins)}
     sc.meta["window_glazing"] = info
     return info
+
+
+def add_piping(img: np.ndarray, sc: Scene) -> dict:
+    """Трубы по диаметрам и арматура по маркам (fp.piping). Подписи читает ИИ по фрагментам рамки чертежа,
+    расширенной вправо: подписи главных коллекторов стоят на полях."""
+    from .piping import build
+    from .scene import Element
+    from .sheet import read_piping
+    h, w = img.shape[:2]
+    bb = (sc.meta.get("sheet") or {}).get("drawing_bbox") or [0, 0, w, h]
+    region = [max(0, bb[0] - 0.03 * w), max(0, bb[1] - 0.05 * h), min(w, bb[2] + 0.12 * w), min(h, bb[3] + 0.05 * h)]
+    try:
+        items, cost = read_piping(img, region)
+    except Exception as e:  # noqa: BLE001
+        sc.meta["piping"] = {"error": f"{type(e).__name__}: {e}"}
+        return sc.meta["piping"]
+    p = build(img, sc, items)
+    p["cost_usd"] = round(cost, 6)
+    p["items"] = items
+    sc.meta["piping"] = p
+    sc.meta["sheet_cost_usd"] = round(sc.meta.get("sheet_cost_usd", 0) + cost, 6)
+    sc.objects = [o for o in sc.objects if o.cls not in ("pipe", "fitting")]
+    for s in p["segments"]:
+        x0, y0, x1, y1 = s["bbox"]
+        sc.objects.append(Element(s["id"], "pipe", [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], 0.6, source="piping"))
+    n = 0
+    for f in p["fittings"]:
+        for x, y in f["points"]:
+            n += 1
+            f.setdefault("ids", []).append(f"f{n}")
+            sc.objects.append(Element(f"f{n}", "fitting", [[x - 6, y - 6], [x + 6, y - 6], [x + 6, y + 6], [x - 6, y + 6]],
+                                      0.7, source="label"))
+    sc.assign_rooms()
+    return p

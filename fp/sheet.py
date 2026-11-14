@@ -281,3 +281,86 @@ def find_rooms(img: np.ndarray, region=None) -> tuple[list[dict], float]:
         out.append({"name": rm["name"], "named": rm["named_on_sheet"],
                     "bbox": [x0 + b[0] / k, y0 + b[1] / k, x0 + b[2] / k, y0 + b[3] / k]})
     return out, cost
+
+
+# ---------------- лист трубопроводов: подписи диаметров и марки ----------------
+PIPING_SCHEMA = {"type": "object", "properties": {"items": {"type": "array", "items": {
+    "type": "object", "properties": {
+        "text": {"type": "string", "description": "the label exactly as written, e.g. 8\", 16\" SUCTION HEADER, CV-3, PG"},
+        "kind": {"type": "string", "enum": ["pipe_size", "valve", "instrument", "support", "equipment", "other"]},
+        "size_in": {"type": "number", "description": "pipe size in inches for pipe_size labels, else 0"},
+        "x": _num, "y": _num,
+        "target_x": {"type": "number", "description": "where the label's leader/arrow points (the pipe or item); "
+                                                       "the label centre if there is no leader"},
+        "target_y": _num},
+    "required": ["text", "kind", "size_in", "x", "y", "target_x", "target_y"], "additionalProperties": False}}},
+    "required": ["items"], "additionalProperties": False}
+
+DUP_PX = 35   # ~0.5 м на M-101A: одна подпись из двух проходов чтения ложится с разбросом до ~30 px
+
+PIPING_PROMPT = """This is one tile of a mechanical PIPING plan ({tw}x{th} px). List EVERY text label in it that belongs \
+to the piping: pipe size callouts (8", 6", 2", 1", 16" SUCTION HEADER, 12" PUMP DISCHARGE HEADER, 10"x12" REDUCER...), \
+valve tags (CV-1, FSCV-3, BPCV, MAV, ...), instrument tags (PG, PS = pressure switch only when written in a circle, \
+DPT-1, PIT 3, FS, ...), pipe support tags (PS-1, PS-12 with a leader to a dot on the pipe), equipment tags (FP-1, FSI-2, \
+FSR-1, pumps, tanks). Skip general notes, title block text, room names and sheet references (M-303, A1). \
+For each: the text exactly as written, its kind, size_in for pipe sizes (else 0), the label centre (x, y) and the \
+point its leader arrow touches (target_x, target_y) in this tile's pixels. A label that applies to several identical \
+items (TYP.) is listed once."""
+
+
+def read_piping(img: np.ndarray, region=None, model: str | None = None, passes: int = 2) -> tuple[list[dict], float]:
+    """Подписи трубопроводов по увеличенным фрагментам (3×2) рамки чертежа: диаметры с точкой выноски,
+    марки арматуры, приборов, опор и оборудования. Координаты — в пикселях исходной картинки.
+    passes — сколько раз читать каждый фрагмент (параллельно); найденное объединяется: за один проход модель
+    каждый раз пропускает разные подписи, и итоги между загрузками прыгают."""
+    import anthropic
+    model = model or VLM_MODEL
+    h, w = img.shape[:2]
+    x0, y0, x1, y1 = (int(v) for v in (region or (0, 0, w, h)))
+    x0, y0, x1, y1 = max(0, x0), max(0, y0), min(w, x1), min(h, y1)
+    nx, ny, ov = 3, 2, 40
+    xs = np.linspace(x0, x1, nx + 1).astype(int)
+    ys = np.linspace(y0, y1, ny + 1).astype(int)
+    client = anthropic.Anthropic()
+    pin, pout = PRICES.get(model, (4.0, 20.0))
+
+    def tile(ij):
+        j, i = ij
+        tx0, ty0 = max(x0, xs[i] - ov), max(y0, ys[j] - ov)
+        tx1, ty1 = min(x1, xs[i + 1] + ov), min(y1, ys[j + 1] + ov)
+        data, k = _png(cv2.resize(img[ty0:ty1, tx0:tx1], None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC),
+                       TILE_SIDE)
+        k *= 2
+        tw, th = round((tx1 - tx0) * k), round((ty1 - ty0) * k)
+        resp = client.messages.create(
+            model=model, max_tokens=8000,
+            output_config={"effort": "low", "format": {"type": "json_schema", "schema": PIPING_SCHEMA}},
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}},
+                {"type": "text", "text": PIPING_PROMPT.format(tw=tw, th=th)}]}])
+        c = (resp.usage.input_tokens * pin + resp.usage.output_tokens * pout) / 1e6
+        text = next((b.text for b in resp.content if b.type == "text"), None) \
+            if resp.stop_reason != "refusal" else None
+        got = []
+        for it in (json.loads(text)["items"] if text else []):
+            for a, b in (("x", "y"), ("target_x", "target_y")):
+                it[a] = round(tx0 + it[a] / k, 1)
+                it[b] = round(ty0 + it[b] / k, 1)
+            it["tile"] = j * nx + i
+            got.append(it)
+        return got, c
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(nx * ny * passes) as ex:
+        res = list(ex.map(tile, [(j, i) for _ in range(passes) for j in range(ny) for i in range(nx)]))
+    items = [it for got, _ in res for it in got]
+    cost = sum(c for _, c in res)
+    # дубли (перекрытие фрагментов, повторные проходы): тот же текст, подпись или точка выноски ближе DUP_PX
+    out = []
+    for it in items:
+        if not any(o["text"] == it["text"] and (
+                (abs(o["x"] - it["x"]) < DUP_PX and abs(o["y"] - it["y"]) < DUP_PX) or
+                (abs(o["target_x"] - it["target_x"]) < DUP_PX and abs(o["target_y"] - it["target_y"]) < DUP_PX))
+                for o in out):
+            out.append(it)
+    return out, cost

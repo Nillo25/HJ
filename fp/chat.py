@@ -64,6 +64,20 @@ def parse_rule(message: str) -> tuple[str, dict] | None:
         # «плинтус в спальнях / in the bedrooms (MH)» — с фильтром по помещению разбирает LLM
         return None if re.search(r"\b(в|во|in|for|of the)\s+\w{2,}|\(", t) else ("rooms", {})
 
+    # лист трубопроводов: длина труб по диаметрам, арматура по маркам
+    if re.search(r"труб|трубопровод|\bpipe|piping", t) and not re.search(r"опор|support", t):
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:\"|''|дюйм|inch|in\b|-?inch)", t)
+        return "pipes", ({"size": float(m.group(1).replace(",", "."))} if m else {})
+    m = re.search(r"\b(cv|fscv|bpcv|mav|pg|pit|dpt|fsi|fsr|fp)\b", t)
+    if m and re.search(r"сколько|how many|покажи|выдел|show|count|highlight", t):
+        return "fittings", {"tag": m.group(1).upper()}
+    for words, kind in ((r"обратн\w* клапан|check valve", "CV"), (r"манометр|pressure gauge", "PG"),
+                        (r"воздухоотвод|air vent", "MAV"), (r"насос\w*|pump", "FP"),
+                        (r"клапан|задвижк|арматур|valve", "valve"), (r"манометр|прибор|датчик|gauge|instrument", "instrument"),
+                        (r"опор\w* труб|pipe support|опор", "support")):
+        if re.search(words, t) and re.search(r"сколько|how many|покажи|выдел|show|count|highlight|какие|list", t):
+            return "fittings", {"tag": kind}
+
     room, span = _room_ref(t)
     rest = t[:span[0]] + t[span[1]:] if span else t
     cls = _find_class(rest)
@@ -123,6 +137,11 @@ def _format_en(name: str, args: dict, a: Answer) -> str:
                  if r.get("ok") else f"{r['name']}: not measured" for r in a.answer["rooms"]]
         tot = a.answer["total"]
         return "\n".join(lines) + f"\nTotal: {tot['area_m2']} m², baseboard {tot['baseboard_m']} m.{conf}"
+    if name == "pipes" and isinstance(a.answer, dict):
+        parts = ", ".join(f"{k}: {v} m" for k, v in a.answer["by_size_m"].items())
+        return f"Pipe length by size: {parts}; total {a.answer['total_m']} m.{conf}"
+    if name == "fittings" and isinstance(a.answer, dict):
+        return "Tags on the sheet: " + ", ".join(f"{k} × {v['count']}" for k, v in a.answer.items()) + f".{conf}"
     if name == "area":
         if not a.answer:
             return "Room not found."
@@ -165,6 +184,11 @@ def _format(name: str, args: dict, a: Answer, lang: str = "ru") -> str:
             lines.append(f"{r['name']}: {r['area_m2']} м² ({r['area_source']}){base}")
         tot = a.answer["total"]
         txt = "\n".join(lines) + f"\nИтого: {tot['area_m2']} м², плинтус {tot['baseboard_m']} м.{conf}"
+    elif name == "pipes" and isinstance(a.answer, dict):
+        parts = ", ".join(f"{k} — {v} м" for k, v in a.answer["by_size_m"].items())
+        txt = f"Трубы по диаметрам: {parts}; всего {a.answer['total_m']} м.{conf}"
+    elif name == "fittings" and isinstance(a.answer, dict):
+        txt = "По маркам на листе: " + ", ".join(f"{k} × {v['count']}" for k, v in a.answer.items()) + f".{conf}"
     elif name == "area":
         if not a.answer:
             txt = "Комнату не нашёл."
@@ -260,7 +284,7 @@ def chat(scene: Scene, message: str, history: list[dict] | None = None, use_llm:
     return out
 
 
-_TEMPLATE_TOOLS = {"count", "highlight", "list_rooms", "objects_in", "area", "rooms", "clear", "legend"}
+_TEMPLATE_TOOLS = {"count", "highlight", "list_rooms", "objects_in", "area", "rooms", "clear", "legend", "pipes", "fittings"}
 
 
 def _templatable(calls: list[dict]) -> bool:

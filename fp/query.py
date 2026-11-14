@@ -490,6 +490,51 @@ def rooms(scene: Scene, name: str | None = None) -> Answer:
                   "; ".join(notes) or None, action="highlight")
 
 
+def pipes(scene: Scene, size: float | None = None) -> Answer:
+    """Длина труб по диаметрам (лист трубопроводов, fp/piping.py): по подписям диаметров на листе.
+    size — диаметр в дюймах; без него — все диаметры."""
+    p = scene.meta.get("piping")
+    if not p or p.get("error"):
+        return Answer(None, confidence="low", score=0.3,
+                      note=(p or {}).get("error") or "на этом листе трубы не разбирались (это не лист трубопроводов)")
+    by = {float(k): v for k, v in p["by_size_m"].items()}
+    segs = p["segments"]
+    if size is not None:
+        size = float(size)
+        segs = [s for s in segs if float(s["size_in"]) == size]
+        by = {size: by.get(size, 0.0)}
+    total = round(sum(by.values()), 2)
+    no_pipe = [r["label"] for r in p["runs"] if not r["ids"] and (size is None or float(r["size_in"]) == size)]
+    notes = ["длина — по участкам, привязанным к подписям диаметров; трубы без подписи не учтены"]
+    if no_pipe:
+        notes.append(f"подписей без найденной трубы: {len(no_pipe)}")
+    unl = sum(p.get("unlabeled_by_width_m", {}).values())
+    if size is None and unl:
+        notes.append(f"ещё ~{round(unl, 1)} м двойных линий без подписи (диаметр не подтверждён)")
+    return Answer({"by_size_m": {f'{k:g}"': round(v, 2) for k, v in sorted(by.items())}, "total_m": total},
+                  "м", "low", 0.5, [s["id"] for s in segs],
+                  [{"kind": "pipe", "id": s["id"], "size_in": s["size_in"], "label": s["label"]} for s in segs],
+                  "; ".join(notes), action="highlight")
+
+
+def fittings(scene: Scene, tag: str | None = None) -> Answer:
+    """Арматура, приборы, опоры и оборудование по маркам листа трубопроводов (CV, FSCV, PG, MAV, PS…)."""
+    p = scene.meta.get("piping")
+    if not p or p.get("error"):
+        return Answer(None, confidence="low", score=0.3, note="на этом листе трубы не разбирались")
+    fs = p["fittings"]
+    if tag:
+        t = tag.upper().rstrip("S") if len(tag) > 2 else tag.upper()
+        fs = [f for f in fs if f["tag"] == tag.upper() or f["tag"] == t or f["kind"] == tag.lower()]
+        if not fs:
+            return Answer(0, "шт", "low", 0.3, note=f"марки {tag!r} нет; есть: {', '.join(f['tag'] for f in p['fittings'])}")
+    ids = [i for f in fs for i in f.get("ids", [])]
+    return Answer({f["tag"]: {"count": f["count"], "kind": f["kind"], "tags": f["texts"][:12]} for f in fs},
+                  "шт", "medium", 0.8, ids, [{"kind": "label", "tag": f["tag"], "count": f["count"]} for f in fs],
+                  "по маркам на листе (ИИ прочитал подписи); марка «TYP.» — одна на несколько одинаковых",
+                  action="highlight")
+
+
 # --- описание инструментов для LLM (Claude tool calling) ---
 _CLS_ENUM = CLASSES + ["room", "sauna", "shower_bathtub", "wc_room", "floor"]
 TOOLS = [
@@ -524,6 +569,14 @@ TOOLS = [
                               "комнаты плана и итоги; подсвечивает их. name — отфильтровать по названию (например 'MH', 'WC', "
                               "'kitchen'); без name — все помещения. Используй для вопросов о площадях помещений и плинтусах.",
      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "additionalProperties": False}},
+    {"name": "pipes", "description": "Лист трубопроводов: длина труб в метрах по диаметрам (по подписям диаметров на листе), "
+                              "подсвечивает трубы. size — диаметр в дюймах (например 8); без него — все диаметры и итог.",
+     "input_schema": {"type": "object", "properties": {"size": {"type": "number"}}, "additionalProperties": False}},
+    {"name": "fittings", "description": "Лист трубопроводов: арматура, приборы, опоры и оборудование по маркам "
+                                 "(CV — обратные клапаны, FSCV, BPCV, MAV — воздухоотводчики, PG — манометры, PIT, DPT, "
+                                 "PS-n — опоры труб, FP — насосы, FSI/FSR — фильтры-сепараторы). tag — префикс марки "
+                                 "или тип (valve, instrument, support, equipment); без него — всё. Подсвечивает.",
+     "input_schema": {"type": "object", "properties": {"tag": {"type": "string"}}, "additionalProperties": False}},
     {"name": "clear", "description": "Снять всю подсветку с плана.",
      "input_schema": {"type": "object", "properties": {}, "additionalProperties": False}},
 ]
@@ -531,7 +584,8 @@ for _t in TOOLS:
     _t["strict"] = True
 
 FUNCS = {"highlight": highlight, "highlight_ids": highlight_ids, "count": count, "list_rooms": list_rooms,
-         "objects_in": objects_in, "area": area, "legend": legend, "rooms": rooms, "clear": clear}
+         "objects_in": objects_in, "area": area, "legend": legend, "rooms": rooms, "clear": clear,
+         "pipes": pipes, "fittings": fittings}
 
 
 def call(scene: Scene, name: str, args: dict) -> Answer:
