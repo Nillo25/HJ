@@ -36,6 +36,15 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
   const cur = KINDS.find(k => k.kind === kind)!;
   const busy = phase.name === 'uploading' || phase.name === 'parsing' || phase.name === 'converting';
 
+  // after a reload: the file was a converted PDF, say so again
+  useEffect(() => {
+    if (!current) { setConverted(null); return; }
+    try {
+      const raw = localStorage.getItem(`northline.conv.${current.id}`);
+      if (raw && !converted) setConverted(JSON.parse(raw));
+    } catch { /* ignore */ }
+  }, [current?.id]);                                   // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (phase.name !== 'parsing') return;
     const t = setInterval(() => setNow(Date.now()), 200);
@@ -75,7 +84,9 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
           return;
         }
       }
-      setConverted(from ? { from: from.name, pages: from.pages } : null);
+      const conv = from ? { from: from.name, pages: from.pages } : null;
+      setConverted(conv);
+      if (d) { try { conv ? localStorage.setItem(`northline.conv.${d.id}`, JSON.stringify(conv)) : localStorage.removeItem(`northline.conv.${d.id}`); } catch { /* storage may be blocked */ } }
       setPhase({ name: 'idle' });
       setReplacing(false);
       if (d) onLoaded(d, ms);
@@ -153,9 +164,15 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
               {parsedMs != null && <span className="tabular-nums">in {(parsedMs / 1000).toFixed(1)} s</span>}
             </p>
             {converted && (
-              <p className="text-xs text-amber-800">
-                Converted from <b>{converted.from}</b>, page 1 of {converted.pages}: the PDF holds only a picture (no text, no vector drawing), so it is handled as an image.
-              </p>
+              <div className="space-y-1 text-xs text-amber-900">
+                <p>Converted from <b>{converted.from}</b>: the PDF holds only a picture (no text, no vector drawing), so it is handled as an image.</p>
+                {converted.pages > 1 && (
+                  <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 font-medium">
+                    ⚠ Only page 1 of {converted.pages} was converted. The other {converted.pages - 1} page{converted.pages - 1 === 1 ? ' is' : 's are'} not
+                    available: questions are about page 1 only.
+                  </p>
+                )}
+              </div>
             )}
           </div>
         )}
