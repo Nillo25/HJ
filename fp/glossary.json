@@ -1,0 +1,2521 @@
+{
+ "_note": "Room names and abbreviations on floor plans -> kind of room -> our room class (fp/classes.py). terms: words and phrases as printed (any case, diacritics optional); abbr: short marks matched only as a whole token (one-letter abbr only as the first token of the label). The longest match wins, so put specific phrases (multi-purpose hall, kitchenette, walk-in closet) into their own kind. User additions: data/glossary_user.json (same format, fp/glossary.py:add_term).",
+ "languages": {
+  "en": "English",
+  "fi": "Finnish",
+  "sv": "Swedish",
+  "no": "Norwegian",
+  "da": "Danish",
+  "de": "German",
+  "nl": "Dutch",
+  "fr": "French",
+  "es": "Spanish",
+  "it": "Italian",
+  "pt": "Portuguese",
+  "pl": "Polish",
+  "et": "Estonian",
+  "ru": "Russian",
+  "uk": "Ukrainian"
+ },
+ "kinds": {
+  "bedroom": {
+   "class": "room_bedroom",
+   "ru": "спальня",
+   "terms": {
+    "en": [
+     "bedroom",
+     "master bedroom",
+     "guest room",
+     "sleeping room",
+     "dormitory",
+     "dorm room",
+     "nursery",
+     "children's room",
+     "kids room"
+    ],
+    "fi": [
+     "makuuhuone",
+     "lastenhuone",
+     "vierashuone",
+     "alkovi"
+    ],
+    "sv": [
+     "sovrum",
+     "sovrummet",
+     "barnrum",
+     "gästrum",
+     "sovalkov"
+    ],
+    "no": [
+     "soverom",
+     "barnerom",
+     "gjesterom"
+    ],
+    "da": [
+     "soveværelse",
+     "børneværelse",
+     "gæsteværelse",
+     "værelse"
+    ],
+    "de": [
+     "schlafzimmer",
+     "kinderzimmer",
+     "gästezimmer",
+     "elternschlafzimmer",
+     "schlafraum"
+    ],
+    "nl": [
+     "slaapkamer",
+     "kinderkamer",
+     "logeerkamer"
+    ],
+    "fr": [
+     "chambre",
+     "chambre à coucher",
+     "chambre d'amis",
+     "chambre parentale"
+    ],
+    "es": [
+     "dormitorio",
+     "habitación",
+     "recámara",
+     "alcoba",
+     "dormitorio principal"
+    ],
+    "it": [
+     "camera",
+     "camera da letto",
+     "camera matrimoniale",
+     "cameretta",
+     "camera singola"
+    ],
+    "pt": [
+     "quarto",
+     "suíte",
+     "dormitório"
+    ],
+    "pl": [
+     "sypialnia",
+     "pokój dziecięcy",
+     "pokój gościnny"
+    ],
+    "et": [
+     "magamistuba",
+     "lastetuba",
+     "külalistetuba"
+    ],
+    "ru": [
+     "спальня",
+     "спальная",
+     "детская",
+     "гостевая",
+     "жилая комната"
+    ],
+    "uk": [
+     "спальня",
+     "дитяча",
+     "гостьова"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "MH",
+     "MH1",
+     "MH2",
+     "MH3"
+    ],
+    "sv": [
+     "SR",
+     "SOV",
+     "SOVR"
+    ],
+    "no": [
+     "SOV"
+    ],
+    "da": [
+     "VÆR",
+     "SOVEV"
+    ],
+    "de": [
+     "SZ",
+     "KiZi",
+     "KZ",
+     "SchlZ"
+    ],
+    "fr": [
+     "CH",
+     "CHB"
+    ],
+    "es": [
+     "DORM",
+     "HAB"
+    ],
+    "it": [
+     "CAM"
+    ],
+    "en": [
+     "BR",
+     "BED",
+     "MBR"
+    ],
+    "pt": [
+     "QTO"
+    ],
+    "ru": [
+     "СП"
+    ]
+   }
+  },
+  "living": {
+   "class": "room_living",
+   "ru": "гостиная",
+   "terms": {
+    "en": [
+     "living room",
+     "living",
+     "lounge",
+     "family room",
+     "sitting room",
+     "great room",
+     "day room",
+     "common room",
+     "den"
+    ],
+    "fi": [
+     "olohuone",
+     "oleskelutila",
+     "oleskelu",
+     "takkahuone",
+     "aula-olohuone",
+     "tupa",
+     "olotila"
+    ],
+    "sv": [
+     "vardagsrum",
+     "allrum",
+     "sällskapsrum",
+     "storstuga",
+     "salong"
+    ],
+    "no": [
+     "stue",
+     "allrom",
+     "dagligstue",
+     "peisestue"
+    ],
+    "da": [
+     "stue",
+     "opholdsstue",
+     "alrum",
+     "dagligstue"
+    ],
+    "de": [
+     "wohnzimmer",
+     "wohnraum",
+     "wohnen",
+     "aufenthaltsraum",
+     "wohnbereich"
+    ],
+    "nl": [
+     "woonkamer",
+     "zitkamer",
+     "woonruimte"
+    ],
+    "fr": [
+     "séjour",
+     "salon",
+     "salle de séjour",
+     "pièce de vie"
+    ],
+    "es": [
+     "salón",
+     "sala de estar",
+     "estar",
+     "sala"
+    ],
+    "it": [
+     "soggiorno",
+     "salotto",
+     "zona giorno",
+     "living"
+    ],
+    "pt": [
+     "sala de estar",
+     "sala",
+     "living"
+    ],
+    "pl": [
+     "pokój dzienny",
+     "salon",
+     "pokój"
+    ],
+    "et": [
+     "elutuba",
+     "puhkeruum"
+    ],
+    "ru": [
+     "гостиная",
+     "общая комната",
+     "зал",
+     "жилая"
+    ],
+    "uk": [
+     "вітальня",
+     "загальна кімната"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "OH",
+     "OLOH"
+    ],
+    "sv": [
+     "VR",
+     "VARD",
+     "ALLR"
+    ],
+    "de": [
+     "WZ",
+     "WOZI"
+    ],
+    "fr": [
+     "SÉJ",
+     "SEJ"
+    ],
+    "en": [
+     "LR",
+     "LIV"
+    ],
+    "ru": [
+     "ГОСТ"
+    ]
+   }
+  },
+  "dining": {
+   "class": "room_living",
+   "ru": "столовая",
+   "terms": {
+    "en": [
+     "dining room",
+     "dining",
+     "dining area",
+     "eating area",
+     "breakfast room"
+    ],
+    "fi": [
+     "ruokailutila",
+     "ruokailu",
+     "ruokasali",
+     "ruokahuone"
+    ],
+    "sv": [
+     "matsal",
+     "matplats",
+     "matrum"
+    ],
+    "no": [
+     "spisestue",
+     "spiseplass"
+    ],
+    "da": [
+     "spisestue",
+     "spiseplads",
+     "spisekøkken"
+    ],
+    "de": [
+     "esszimmer",
+     "essen",
+     "essplatz",
+     "essbereich"
+    ],
+    "nl": [
+     "eetkamer",
+     "eethoek"
+    ],
+    "fr": [
+     "salle à manger",
+     "coin repas"
+    ],
+    "es": [
+     "comedor"
+    ],
+    "it": [
+     "sala da pranzo",
+     "pranzo"
+    ],
+    "pt": [
+     "sala de jantar",
+     "copa"
+    ],
+    "pl": [
+     "jadalnia"
+    ],
+    "et": [
+     "söögituba",
+     "söögiruum"
+    ],
+    "ru": [
+     "столовая",
+     "обеденная зона"
+    ],
+    "uk": [
+     "їдальня"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "RT",
+     "RUOK"
+    ],
+    "sv": [
+     "MATR"
+    ],
+    "de": [
+     "EZ"
+    ]
+   }
+  },
+  "kitchen": {
+   "class": "room_kitchen",
+   "ru": "кухня",
+   "terms": {
+    "en": [
+     "kitchen",
+     "open kitchen",
+     "kitchen/dining",
+     "kitchen-diner",
+     "galley",
+     "utility kitchen",
+     "staff kitchen",
+     "kitchen area",
+     "pantry kitchen"
+    ],
+    "fi": [
+     "keittiö",
+     "avokeittiö",
+     "keittotila",
+     "keittiötila"
+    ],
+    "sv": [
+     "kök",
+     "köket",
+     "kokvrå",
+     "pentry",
+     "öppet kök"
+    ],
+    "no": [
+     "kjøkken",
+     "kjøkkenkrok",
+     "tekjøkken"
+    ],
+    "da": [
+     "køkken",
+     "køkken-alrum",
+     "tekøkken"
+    ],
+    "de": [
+     "küche",
+     "wohnküche",
+     "kochnische",
+     "teeküche",
+     "pantry",
+     "offene küche"
+    ],
+    "nl": [
+     "keuken",
+     "open keuken",
+     "pantry"
+    ],
+    "fr": [
+     "cuisine",
+     "cuisine ouverte",
+     "kitchenette"
+    ],
+    "es": [
+     "cocina",
+     "cocina abierta"
+    ],
+    "it": [
+     "cucina",
+     "angolo cottura",
+     "cucinotto"
+    ],
+    "pt": [
+     "cozinha",
+     "kitchenette"
+    ],
+    "pl": [
+     "kuchnia",
+     "aneks kuchenny"
+    ],
+    "et": [
+     "köök",
+     "kööginurk"
+    ],
+    "ru": [
+     "кухня",
+     "кухня-гостиная",
+     "кухня-столовая",
+     "кухня-ниша",
+     "кухонная зона"
+    ],
+    "uk": [
+     "кухня",
+     "кухня-вітальня"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "K",
+     "KK",
+     "KT",
+     "AK",
+     "KEIT"
+    ],
+    "sv": [
+     "KÖK",
+     "KV"
+    ],
+    "en": [
+     "KIT",
+     "KITCH"
+    ],
+    "de": [
+     "KÜ"
+    ],
+    "ru": [
+     "КУХ"
+    ]
+   }
+  },
+  "bathroom": {
+   "class": "room_bath",
+   "ru": "ванная",
+   "terms": {
+    "en": [
+     "bathroom",
+     "bath",
+     "washroom",
+     "shower room",
+     "en suite",
+     "ensuite",
+     "wet room",
+     "hygiene room"
+    ],
+    "fi": [
+     "kylpyhuone",
+     "pesuhuone",
+     "suihkuhuone",
+     "pesutila",
+     "kph"
+    ],
+    "sv": [
+     "badrum",
+     "bad",
+     "duschrum",
+     "tvättrum",
+     "våtrum",
+     "dusch"
+    ],
+    "no": [
+     "bad",
+     "baderom",
+     "dusjrom",
+     "våtrom"
+    ],
+    "da": [
+     "bad",
+     "badeværelse",
+     "brusebad"
+    ],
+    "de": [
+     "bad",
+     "badezimmer",
+     "duschbad",
+     "dusche",
+     "nasszelle",
+     "duschraum"
+    ],
+    "nl": [
+     "badkamer",
+     "douche",
+     "doucheruimte"
+    ],
+    "fr": [
+     "salle de bain",
+     "salle de bains",
+     "salle d'eau",
+     "douche"
+    ],
+    "es": [
+     "baño",
+     "cuarto de baño",
+     "ducha"
+    ],
+    "it": [
+     "bagno",
+     "doccia",
+     "bagno padronale"
+    ],
+    "pt": [
+     "banheiro",
+     "casa de banho",
+     "wc completo"
+    ],
+    "pl": [
+     "łazienka",
+     "prysznic"
+    ],
+    "et": [
+     "vannituba",
+     "pesuruum",
+     "dušširuum"
+    ],
+    "ru": [
+     "ванная",
+     "ванная комната",
+     "душевая",
+     "совмещённый санузел",
+     "санузел совмещённый"
+    ],
+    "uk": [
+     "ванна",
+     "ванна кімната",
+     "душова"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "KH",
+     "KPH",
+     "PH",
+     "PESUH",
+     "SH",
+     "KYLPYH"
+    ],
+    "sv": [
+     "BAD",
+     "BADR",
+     "DU",
+     "DUSCH"
+    ],
+    "fr": [
+     "SDB",
+     "SDE"
+    ],
+    "es": [],
+    "en": [
+     "BA",
+     "BTH",
+     "ENS"
+    ],
+    "de": [
+     "DU"
+    ],
+    "ru": [
+     "ВАН",
+     "ВН"
+    ]
+   }
+  },
+  "wc": {
+   "class": "room_bath",
+   "ru": "туалет (WC)",
+   "terms": {
+    "en": [
+     "toilet",
+     "toilets",
+     "wc",
+     "w.c.",
+     "restroom",
+     "lavatory",
+     "powder room",
+     "water closet",
+     "accessible toilet",
+     "disabled toilet",
+     "cloakroom wc"
+    ],
+    "fi": [
+     "wc",
+     "vessa",
+     "käymälä",
+     "toaletti",
+     "inva-wc",
+     "invawc"
+    ],
+    "sv": [
+     "toalett",
+     "wc",
+     "toa",
+     "gästtoalett",
+     "rwc"
+    ],
+    "no": [
+     "toalett",
+     "wc",
+     "gjestetoalett"
+    ],
+    "da": [
+     "toilet",
+     "wc",
+     "gæstetoilet"
+    ],
+    "de": [
+     "wc",
+     "gäste-wc",
+     "toilette",
+     "gäste wc"
+    ],
+    "nl": [
+     "toilet",
+     "wc",
+     "toiletruimte"
+    ],
+    "fr": [
+     "wc",
+     "toilettes",
+     "cabinet de toilette"
+    ],
+    "es": [
+     "aseo",
+     "inodoro",
+     "wc",
+     "servicio",
+     "baño de cortesía"
+    ],
+    "it": [
+     "wc",
+     "bagno di servizio",
+     "toilette",
+     "antibagno"
+    ],
+    "pt": [
+     "lavabo",
+     "wc",
+     "sanitário",
+     "instalação sanitária"
+    ],
+    "pl": [
+     "wc",
+     "toaleta",
+     "ubikacja"
+    ],
+    "et": [
+     "tualett",
+     "wc",
+     "käimla"
+    ],
+    "ru": [
+     "туалет",
+     "уборная",
+     "санузел",
+     "с/у",
+     "су",
+     "wc"
+    ],
+    "uk": [
+     "туалет",
+     "вбиральня",
+     "санвузол"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "WC",
+     "INVA-WC"
+    ],
+    "sv": [
+     "WC",
+     "TOA",
+     "RWC"
+    ],
+    "en": [
+     "WC",
+     "TLT",
+     "WCS"
+    ],
+    "ru": [
+     "С/У",
+     "СУ",
+     "WC"
+    ]
+   }
+  },
+  "sauna": {
+   "class": "room_bath",
+   "ru": "сауна",
+   "terms": {
+    "en": [
+     "sauna",
+     "steam room"
+    ],
+    "fi": [
+     "sauna",
+     "löylyhuone",
+     "saunatila",
+     "höyrysauna"
+    ],
+    "sv": [
+     "bastu",
+     "basturum"
+    ],
+    "no": [
+     "badstue",
+     "sauna"
+    ],
+    "da": [
+     "sauna"
+    ],
+    "de": [
+     "sauna",
+     "dampfbad"
+    ],
+    "nl": [
+     "sauna"
+    ],
+    "fr": [
+     "sauna",
+     "hammam"
+    ],
+    "es": [
+     "sauna"
+    ],
+    "it": [
+     "sauna",
+     "bagno turco"
+    ],
+    "pt": [
+     "sauna"
+    ],
+    "pl": [
+     "sauna"
+    ],
+    "et": [
+     "saun",
+     "leiliruum"
+    ],
+    "ru": [
+     "сауна",
+     "баня",
+     "парилка",
+     "парная"
+    ],
+    "uk": [
+     "сауна",
+     "лазня"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "S",
+     "SA",
+     "LH"
+    ],
+    "sv": [
+     "BASTU"
+    ]
+   }
+  },
+  "laundry": {
+   "class": "room_storage",
+   "ru": "постирочная / хозпомещение",
+   "terms": {
+    "en": [
+     "laundry",
+     "utility",
+     "utility room",
+     "laundry room",
+     "mud room",
+     "boot room"
+    ],
+    "fi": [
+     "kodinhoitohuone",
+     "pesula",
+     "pyykkihuone",
+     "kuivaushuone",
+     "kodinhoito"
+    ],
+    "sv": [
+     "tvättstuga",
+     "grovkök",
+     "tvätt",
+     "tvättrum"
+    ],
+    "no": [
+     "vaskerom",
+     "vaskeri",
+     "grovkjøkken"
+    ],
+    "da": [
+     "bryggers",
+     "vaskerum"
+    ],
+    "de": [
+     "hauswirtschaftsraum",
+     "waschküche",
+     "hausarbeitsraum",
+     "wäscheraum"
+    ],
+    "nl": [
+     "bijkeuken",
+     "wasruimte",
+     "washok"
+    ],
+    "fr": [
+     "buanderie",
+     "cellier",
+     "lingerie"
+    ],
+    "es": [
+     "lavadero",
+     "cuarto de lavado",
+     "lavandería"
+    ],
+    "it": [
+     "lavanderia"
+    ],
+    "pt": [
+     "lavandaria",
+     "lavanderia",
+     "área de serviço"
+    ],
+    "pl": [
+     "pralnia",
+     "pomieszczenie gospodarcze"
+    ],
+    "et": [
+     "pesuköök",
+     "pesuruum"
+    ],
+    "ru": [
+     "постирочная",
+     "прачечная",
+     "хозяйственная",
+     "хозпомещение"
+    ],
+    "uk": [
+     "пральня",
+     "господарське приміщення"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "KHH",
+     "KUIV"
+    ],
+    "sv": [
+     "TV",
+     "TVÄTT",
+     "GROVK"
+    ],
+    "de": [
+     "HWR",
+     "HAR"
+    ],
+    "en": [
+     "UTIL",
+     "LDRY"
+    ]
+   }
+  },
+  "dressing": {
+   "class": "room_storage",
+   "ru": "гардеробная",
+   "terms": {
+    "en": [
+     "walk-in closet",
+     "walk in closet",
+     "wardrobe",
+     "dressing room",
+     "closet",
+     "cloakroom",
+     "coat room"
+    ],
+    "fi": [
+     "vaatehuone",
+     "pukeutumishuone",
+     "vaatekomero"
+    ],
+    "sv": [
+     "klädkammare",
+     "klädkammaren",
+     "walk-in-closet",
+     "garderob"
+    ],
+    "no": [
+     "garderobe",
+     "walk-in"
+    ],
+    "da": [
+     "garderobe",
+     "walk-in"
+    ],
+    "de": [
+     "ankleide",
+     "ankleidezimmer",
+     "garderobe",
+     "begehbarer kleiderschrank"
+    ],
+    "nl": [
+     "inloopkast",
+     "kleedkamer",
+     "garderobe"
+    ],
+    "fr": [
+     "dressing",
+     "penderie",
+     "vestiaire"
+    ],
+    "es": [
+     "vestidor",
+     "armario empotrado",
+     "ropero"
+    ],
+    "it": [
+     "cabina armadio",
+     "guardaroba",
+     "spogliatoio"
+    ],
+    "pt": [
+     "closet",
+     "roupeiro",
+     "vestiário"
+    ],
+    "pl": [
+     "garderoba"
+    ],
+    "et": [
+     "garderoob",
+     "riietusruum"
+    ],
+    "ru": [
+     "гардеробная",
+     "гардероб",
+     "шкаф"
+    ],
+    "uk": [
+     "гардеробна",
+     "гардероб"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "VH"
+    ],
+    "sv": [
+     "KLK",
+     "KLKR",
+     "GARD"
+    ],
+    "en": [
+     "WIC",
+     "CL",
+     "CLO"
+    ],
+    "fr": [
+     "DRESS"
+    ],
+    "ru": [
+     "ГАРД"
+    ]
+   }
+  },
+  "changing": {
+   "class": "room_other",
+   "ru": "раздевалка",
+   "terms": {
+    "en": [
+     "changing",
+     "changing room",
+     "locker room",
+     "changing places"
+    ],
+    "fi": [
+     "pukuhuone",
+     "pukeutumistila"
+    ],
+    "sv": [
+     "omklädningsrum"
+    ],
+    "no": [
+     "omkledningsrom"
+    ],
+    "da": [
+     "omklædningsrum"
+    ],
+    "de": [
+     "umkleide",
+     "umkleideraum"
+    ],
+    "nl": [
+     "kleedruimte"
+    ],
+    "fr": [
+     "vestiaires"
+    ],
+    "es": [
+     "vestuario"
+    ],
+    "it": [
+     "spogliatoi"
+    ],
+    "pt": [
+     "balneário"
+    ],
+    "pl": [
+     "szatnia",
+     "przebieralnia"
+    ],
+    "et": [
+     "riietusruum"
+    ],
+    "ru": [
+     "раздевалка",
+     "раздевальная"
+    ],
+    "uk": [
+     "роздягальня"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "PKH",
+     "PUKUH"
+    ]
+   }
+  },
+  "storage": {
+   "class": "room_storage",
+   "ru": "кладовая",
+   "terms": {
+    "en": [
+     "storage",
+     "store",
+     "store room",
+     "storeroom",
+     "secure store",
+     "pantry",
+     "larder",
+     "shed",
+     "cupboard",
+     "janitor",
+     "cleaner's cupboard",
+     "cleaners",
+     "furniture store"
+    ],
+    "fi": [
+     "varasto",
+     "komero",
+     "kylmiö",
+     "ulkovarasto",
+     "irtaimistovarasto",
+     "siivouskomero",
+     "ruokakomero",
+     "kellari",
+     "siivous"
+    ],
+    "sv": [
+     "förråd",
+     "skafferi",
+     "städ",
+     "städskrubb",
+     "kallförråd",
+     "förvaring",
+     "källare"
+    ],
+    "no": [
+     "bod",
+     "boden",
+     "lager",
+     "sportsbod",
+     "kott",
+     "spiskammers"
+    ],
+    "da": [
+     "depot",
+     "depotrum",
+     "skur",
+     "kælder",
+     "pulterkammer",
+     "spisekammer"
+    ],
+    "de": [
+     "abstellraum",
+     "abstellkammer",
+     "lager",
+     "vorratsraum",
+     "speisekammer",
+     "keller",
+     "kammer",
+     "putzraum",
+     "abst"
+    ],
+    "nl": [
+     "berging",
+     "opslag",
+     "voorraadkast",
+     "kelder",
+     "trapkast",
+     "schoonmaakruimte"
+    ],
+    "fr": [
+     "rangement",
+     "placard",
+     "débarras",
+     "réserve",
+     "cave",
+     "remise",
+     "local ménage"
+    ],
+    "es": [
+     "trastero",
+     "despensa",
+     "almacén",
+     "bodega",
+     "cuarto de limpieza"
+    ],
+    "it": [
+     "ripostiglio",
+     "dispensa",
+     "deposito",
+     "magazzino",
+     "cantina",
+     "locale pulizie"
+    ],
+    "pt": [
+     "arrumos",
+     "despensa",
+     "arrecadação",
+     "depósito",
+     "dispensa"
+    ],
+    "pl": [
+     "komórka",
+     "spiżarnia",
+     "schowek",
+     "magazyn",
+     "piwnica",
+     "pomieszczenie porządkowe"
+    ],
+    "et": [
+     "panipaik",
+     "sahver",
+     "hoiuruum",
+     "laoruum",
+     "kelder",
+     "koristusruum"
+    ],
+    "ru": [
+     "кладовая",
+     "кладовка",
+     "склад",
+     "подсобка",
+     "подсобное",
+     "чулан",
+     "хранение",
+     "уборочная",
+     "кпи"
+    ],
+    "uk": [
+     "комора",
+     "кладова",
+     "склад"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "VAR",
+     "KOM",
+     "IVAR",
+     "UV",
+     "SIIV"
+    ],
+    "sv": [
+     "FRD",
+     "FÖRR",
+     "STÄD",
+     "KFRD"
+    ],
+    "de": [
+     "ABST",
+     "AR",
+     "LAG"
+    ],
+    "it": [
+     "RIP"
+    ],
+    "en": [
+     "STR",
+     "STO",
+     "JAN"
+    ],
+    "ru": [
+     "КЛ",
+     "КЛАД"
+    ]
+   }
+  },
+  "plant": {
+   "class": "room_other",
+   "ru": "техническое помещение",
+   "terms": {
+    "en": [
+     "plant room",
+     "plant",
+     "mechanical room",
+     "boiler room",
+     "electrical room",
+     "server room",
+     "riser",
+     "tech room",
+     "technical room",
+     "switch room",
+     "comms room",
+     "meter room",
+     "pump room",
+     "pumphouse"
+    ],
+    "fi": [
+     "tekninen tila",
+     "lämmönjakohuone",
+     "lämmönjako",
+     "sähköpääkeskus",
+     "ilmanvaihtokonehuone",
+     "konehuone",
+     "iv-konehuone",
+     "tekn. tila",
+     "teknillinen tila"
+    ],
+    "sv": [
+     "teknikrum",
+     "pannrum",
+     "elrum",
+     "fläktrum",
+     "undercentral",
+     "apparatrum"
+    ],
+    "no": [
+     "teknisk rom",
+     "fyrrom",
+     "el-rom",
+     "inntaksrom"
+    ],
+    "da": [
+     "teknikrum",
+     "fyrrum",
+     "el-rum"
+    ],
+    "de": [
+     "technikraum",
+     "heizraum",
+     "hausanschlussraum",
+     "elektroraum",
+     "technik",
+     "lüftungszentrale"
+    ],
+    "nl": [
+     "technische ruimte",
+     "meterkast",
+     "stookruimte"
+    ],
+    "fr": [
+     "local technique",
+     "chaufferie",
+     "local électrique"
+    ],
+    "es": [
+     "sala de máquinas",
+     "cuarto técnico",
+     "sala de calderas",
+     "cuarto de instalaciones"
+    ],
+    "it": [
+     "locale tecnico",
+     "centrale termica",
+     "vano tecnico"
+    ],
+    "pt": [
+     "sala técnica",
+     "casa das máquinas"
+    ],
+    "pl": [
+     "pomieszczenie techniczne",
+     "kotłownia",
+     "maszynownia",
+     "wymiennikownia"
+    ],
+    "et": [
+     "tehnoruum",
+     "katlaruum",
+     "elektriruum"
+    ],
+    "ru": [
+     "техническое помещение",
+     "техпомещение",
+     "котельная",
+     "электрощитовая",
+     "венткамера",
+     "насосная",
+     "тепловой пункт",
+     "итп"
+    ],
+    "uk": [
+     "технічне приміщення",
+     "котельня",
+     "електрощитова"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "LJH",
+     "TEKN",
+     "SPK",
+     "IVKH",
+     "KH-IV"
+    ],
+    "sv": [
+     "TEKN",
+     "UC",
+     "EL"
+    ],
+    "de": [
+     "HAUSANSCHL"
+    ],
+    "en": [
+     "MER",
+     "ELEC"
+    ],
+    "ru": [
+     "ВК",
+     "ЭЩ",
+     "ИТП"
+    ]
+   }
+  },
+  "entry": {
+   "class": "room_entry",
+   "ru": "прихожая / тамбур",
+   "terms": {
+    "en": [
+     "entry",
+     "entrance",
+     "entrance hall",
+     "entrance lobby",
+     "hall",
+     "hallway",
+     "foyer",
+     "vestibule",
+     "porch",
+     "lobby",
+     "reception",
+     "airlock",
+     "draught lobby",
+     "lift landing",
+     "landing"
+    ],
+    "fi": [
+     "eteinen",
+     "tuulikaappi",
+     "aula",
+     "halli",
+     "porrashalli",
+     "sisäänkäynti",
+     "eteisaula"
+    ],
+    "sv": [
+     "hall",
+     "entré",
+     "vindfång",
+     "farstu",
+     "tambur",
+     "kapprum"
+    ],
+    "no": [
+     "entré",
+     "vindfang",
+     "hall",
+     "trapperom"
+    ],
+    "da": [
+     "entré",
+     "forstue",
+     "vindfang"
+    ],
+    "de": [
+     "flur",
+     "diele",
+     "eingang",
+     "windfang",
+     "vorraum",
+     "eingangshalle",
+     "foyer"
+    ],
+    "nl": [
+     "hal",
+     "entree",
+     "tochtportaal",
+     "voorportaal",
+     "overloop"
+    ],
+    "fr": [
+     "entrée",
+     "hall",
+     "vestibule",
+     "sas",
+     "palier"
+    ],
+    "es": [
+     "recibidor",
+     "vestíbulo",
+     "entrada",
+     "hall",
+     "zaguán"
+    ],
+    "it": [
+     "ingresso",
+     "atrio",
+     "vestibolo",
+     "pianerottolo"
+    ],
+    "pt": [
+     "hall",
+     "entrada",
+     "vestíbulo",
+     "átrio"
+    ],
+    "pl": [
+     "przedpokój",
+     "hol",
+     "wiatrołap",
+     "sień",
+     "wejście"
+    ],
+    "et": [
+     "esik",
+     "eeskoda",
+     "tuulekoda",
+     "fuajee"
+    ],
+    "ru": [
+     "прихожая",
+     "холл",
+     "тамбур",
+     "вестибюль",
+     "передняя",
+     "входная зона",
+     "лифтовой холл"
+    ],
+    "uk": [
+     "передпокій",
+     "хол",
+     "тамбур",
+     "вестибюль"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "ET",
+     "TK",
+     "AULA"
+    ],
+    "sv": [
+     "HALL",
+     "VF",
+     "ENTRÉ"
+    ],
+    "fr": [
+     "ENT",
+     "DGT",
+     "DÉG"
+    ],
+    "en": [
+     "ENT",
+     "HL",
+     "FOY"
+    ],
+    "ru": [
+     "ПР",
+     "ПРИХ"
+    ]
+   }
+  },
+  "corridor": {
+   "class": "room_entry",
+   "ru": "коридор",
+   "terms": {
+    "en": [
+     "corridor",
+     "passage",
+     "passageway",
+     "circulation",
+     "enclosed walkway",
+     "walkway",
+     "gallery"
+    ],
+    "fi": [
+     "käytävä",
+     "kulku",
+     "kulkuyhteys",
+     "yhdyskäytävä"
+    ],
+    "sv": [
+     "korridor",
+     "passage",
+     "gång"
+    ],
+    "no": [
+     "korridor",
+     "passasje"
+    ],
+    "da": [
+     "gang",
+     "korridor"
+    ],
+    "de": [
+     "korridor",
+     "gang"
+    ],
+    "nl": [
+     "gang",
+     "corridor"
+    ],
+    "fr": [
+     "couloir",
+     "dégagement",
+     "circulation"
+    ],
+    "es": [
+     "pasillo",
+     "corredor",
+     "distribuidor"
+    ],
+    "it": [
+     "corridoio",
+     "disimpegno"
+    ],
+    "pt": [
+     "corredor",
+     "circulação"
+    ],
+    "pl": [
+     "korytarz",
+     "komunikacja"
+    ],
+    "et": [
+     "koridor",
+     "käik"
+    ],
+    "ru": [
+     "коридор",
+     "проход",
+     "переход",
+     "галерея"
+    ],
+    "uk": [
+     "коридор",
+     "прохід"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "KÄ",
+     "KÄYT"
+    ],
+    "sv": [
+     "KORR"
+    ],
+    "fr": [
+     "DGT",
+     "DEG"
+    ],
+    "en": [
+     "COR",
+     "CORR",
+     "CIRC"
+    ],
+    "ru": [
+     "КОР"
+    ]
+   }
+  },
+  "stair": {
+   "class": "room_other",
+   "ru": "лестница",
+   "terms": {
+    "en": [
+     "stair",
+     "stairs",
+     "staircase",
+     "stairwell",
+     "escape stair",
+     "stair core"
+    ],
+    "fi": [
+     "porras",
+     "portaat",
+     "porrashuone",
+     "porraskäytävä"
+    ],
+    "sv": [
+     "trappa",
+     "trapphus",
+     "trapphall"
+    ],
+    "no": [
+     "trapp",
+     "trapperom",
+     "trappehus"
+    ],
+    "da": [
+     "trappe",
+     "trapperum",
+     "opgang"
+    ],
+    "de": [
+     "treppe",
+     "treppenhaus",
+     "treppenraum"
+    ],
+    "nl": [
+     "trap",
+     "trappenhuis"
+    ],
+    "fr": [
+     "escalier",
+     "cage d'escalier"
+    ],
+    "es": [
+     "escalera",
+     "caja de escalera"
+    ],
+    "it": [
+     "scala",
+     "vano scala"
+    ],
+    "pt": [
+     "escada",
+     "caixa de escada"
+    ],
+    "pl": [
+     "schody",
+     "klatka schodowa"
+    ],
+    "et": [
+     "trepp",
+     "trepikoda"
+    ],
+    "ru": [
+     "лестница",
+     "лестничная клетка",
+     "лк"
+    ],
+    "uk": [
+     "сходи",
+     "сходова клітка"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "PRH"
+    ],
+    "de": [
+     "TRH"
+    ],
+    "en": [],
+    "ru": [
+     "ЛК"
+    ]
+   }
+  },
+  "lift": {
+   "class": "room_other",
+   "ru": "лифт",
+   "terms": {
+    "en": [
+     "lift",
+     "elevator",
+     "lift shaft",
+     "elevator shaft"
+    ],
+    "fi": [
+     "hissi",
+     "hissikuilu"
+    ],
+    "sv": [
+     "hiss",
+     "hisschakt"
+    ],
+    "no": [
+     "heis",
+     "heissjakt"
+    ],
+    "da": [
+     "elevator",
+     "elevatorskakt"
+    ],
+    "de": [
+     "aufzug",
+     "fahrstuhl",
+     "aufzugsschacht"
+    ],
+    "nl": [
+     "lift",
+     "liftschacht"
+    ],
+    "fr": [
+     "ascenseur",
+     "gaine d'ascenseur"
+    ],
+    "es": [
+     "ascensor",
+     "hueco de ascensor"
+    ],
+    "it": [
+     "ascensore",
+     "vano ascensore"
+    ],
+    "pt": [
+     "elevador",
+     "ascensor"
+    ],
+    "pl": [
+     "winda",
+     "szyb windowy",
+     "dźwig"
+    ],
+    "et": [
+     "lift",
+     "liftišaht"
+    ],
+    "ru": [
+     "лифт",
+     "лифтовая шахта"
+    ],
+    "uk": [
+     "ліфт",
+     "ліфтова шахта"
+    ]
+   },
+   "abbr": {
+    "en": [
+     "LIFT"
+    ],
+    "de": []
+   }
+  },
+  "balcony": {
+   "class": "room_outdoor",
+   "ru": "балкон",
+   "terms": {
+    "en": [
+     "balcony",
+     "glazed balcony",
+     "loggia",
+     "french balcony",
+     "juliet balcony"
+    ],
+    "fi": [
+     "parveke",
+     "lasitettu parveke",
+     "ranskalainen parveke",
+     "parvi"
+    ],
+    "sv": [
+     "balkong",
+     "inglasad balkong",
+     "loggia",
+     "fransk balkong"
+    ],
+    "no": [
+     "balkong",
+     "innglasset balkong"
+    ],
+    "da": [
+     "altan",
+     "balkon",
+     "fransk altan"
+    ],
+    "de": [
+     "balkon",
+     "loggia",
+     "französischer balkon"
+    ],
+    "nl": [
+     "balkon",
+     "loggia",
+     "frans balkon"
+    ],
+    "fr": [
+     "balcon",
+     "loggia"
+    ],
+    "es": [
+     "balcón",
+     "galería"
+    ],
+    "it": [
+     "balcone",
+     "loggia",
+     "poggiolo"
+    ],
+    "pt": [
+     "varanda",
+     "sacada",
+     "marquise"
+    ],
+    "pl": [
+     "balkon",
+     "loggia"
+    ],
+    "et": [
+     "rõdu",
+     "lodža",
+     "klaasitud rõdu"
+    ],
+    "ru": [
+     "балкон",
+     "лоджия",
+     "остеклённый балкон"
+    ],
+    "uk": [
+     "балкон",
+     "лоджія"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "P",
+     "PARV",
+     "LP"
+    ],
+    "sv": [
+     "BALK",
+     "BALKONG"
+    ],
+    "en": [
+     "BALC"
+    ],
+    "ru": [
+     "БАЛК"
+    ]
+   }
+  },
+  "terrace": {
+   "class": "room_outdoor",
+   "ru": "терраса",
+   "terms": {
+    "en": [
+     "terrace",
+     "patio",
+     "deck",
+     "veranda",
+     "roof terrace",
+     "porch deck"
+    ],
+    "fi": [
+     "terassi",
+     "kattoterassi",
+     "kuisti",
+     "veranta",
+     "lasikuisti",
+     "piha"
+    ],
+    "sv": [
+     "terrass",
+     "uteplats",
+     "altan",
+     "veranda",
+     "takterrass"
+    ],
+    "no": [
+     "terrasse",
+     "veranda",
+     "uteplass",
+     "takterrasse"
+    ],
+    "da": [
+     "terrasse",
+     "tagterrasse",
+     "veranda"
+    ],
+    "de": [
+     "terrasse",
+     "dachterrasse",
+     "veranda",
+     "freisitz"
+    ],
+    "nl": [
+     "terras",
+     "dakterras",
+     "veranda"
+    ],
+    "fr": [
+     "terrasse",
+     "véranda",
+     "patio"
+    ],
+    "es": [
+     "terraza",
+     "patio",
+     "porche"
+    ],
+    "it": [
+     "terrazzo",
+     "terrazza",
+     "veranda",
+     "patio"
+    ],
+    "pt": [
+     "terraço",
+     "pátio",
+     "alpendre"
+    ],
+    "pl": [
+     "taras",
+     "weranda"
+    ],
+    "et": [
+     "terrass",
+     "veranda",
+     "katuseterrass"
+    ],
+    "ru": [
+     "терраса",
+     "веранда",
+     "патио"
+    ],
+    "uk": [
+     "тераса",
+     "веранда"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "TER",
+     "TERAS"
+    ],
+    "sv": [
+     "TERR"
+    ]
+   }
+  },
+  "garage": {
+   "class": "room_other",
+   "ru": "гараж",
+   "terms": {
+    "en": [
+     "garage",
+     "carport",
+     "car park",
+     "parking"
+    ],
+    "fi": [
+     "autotalli",
+     "autokatos",
+     "pysäköinti"
+    ],
+    "sv": [
+     "garage",
+     "carport",
+     "parkering"
+    ],
+    "no": [
+     "garasje",
+     "carport"
+    ],
+    "da": [
+     "garage",
+     "carport"
+    ],
+    "de": [
+     "garage",
+     "carport",
+     "tiefgarage",
+     "stellplatz"
+    ],
+    "nl": [
+     "garage",
+     "carport"
+    ],
+    "fr": [
+     "garage",
+     "parking"
+    ],
+    "es": [
+     "garaje",
+     "cochera",
+     "aparcamiento"
+    ],
+    "it": [
+     "garage",
+     "autorimessa",
+     "box auto"
+    ],
+    "pt": [
+     "garagem"
+    ],
+    "pl": [
+     "garaż",
+     "wiata"
+    ],
+    "et": [
+     "garaaž",
+     "autovarjualune"
+    ],
+    "ru": [
+     "гараж",
+     "автостоянка",
+     "паркинг"
+    ],
+    "uk": [
+     "гараж",
+     "паркінг"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "AT"
+    ],
+    "de": [
+     "GA"
+    ]
+   }
+  },
+  "office": {
+   "class": "room_other",
+   "ru": "кабинет / офис",
+   "terms": {
+    "en": [
+     "office",
+     "study",
+     "home office",
+     "staff office",
+     "workroom",
+     "staff workroom",
+     "meeting room",
+     "conference room",
+     "staff room",
+     "admin"
+    ],
+    "fi": [
+     "työhuone",
+     "toimisto",
+     "neuvotteluhuone",
+     "kokoushuone",
+     "henkilökunnan huone",
+     "opettajainhuone"
+    ],
+    "sv": [
+     "arbetsrum",
+     "kontor",
+     "mötesrum",
+     "konferensrum",
+     "personalrum"
+    ],
+    "no": [
+     "arbeidsrom",
+     "kontor",
+     "møterom"
+    ],
+    "da": [
+     "arbejdsværelse",
+     "kontor",
+     "mødelokale"
+    ],
+    "de": [
+     "arbeitszimmer",
+     "büro",
+     "besprechungsraum",
+     "lehrerzimmer"
+    ],
+    "nl": [
+     "werkkamer",
+     "kantoor",
+     "vergaderruimte",
+     "studeerkamer"
+    ],
+    "fr": [
+     "bureau",
+     "salle de réunion"
+    ],
+    "es": [
+     "despacho",
+     "estudio",
+     "oficina",
+     "sala de reuniones"
+    ],
+    "it": [
+     "studio",
+     "ufficio",
+     "sala riunioni"
+    ],
+    "pt": [
+     "escritório",
+     "sala de reuniões"
+    ],
+    "pl": [
+     "gabinet",
+     "biuro",
+     "pokój nauczycielski",
+     "sala konferencyjna"
+    ],
+    "et": [
+     "kabinet",
+     "kontor",
+     "nõupidamisruum",
+     "tööruum"
+    ],
+    "ru": [
+     "кабинет",
+     "офис",
+     "переговорная",
+     "учительская"
+    ],
+    "uk": [
+     "кабінет",
+     "офіс"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "TH",
+     "TYÖH"
+    ],
+    "de": [
+     "BÜ"
+    ],
+    "en": [
+     "OFF"
+    ]
+   }
+  },
+  "classroom": {
+   "class": "room_other",
+   "ru": "учебное помещение",
+   "terms": {
+    "en": [
+     "classroom",
+     "secondary classroom",
+     "primary classroom",
+     "group room",
+     "teaching room",
+     "seminar room",
+     "lecture room",
+     "lab",
+     "laboratory",
+     "art room",
+     "music room",
+     "therapy room",
+     "sensory room",
+     "workshop",
+     "library",
+     "learning resource"
+    ],
+    "fi": [
+     "luokka",
+     "luokkahuone",
+     "ryhmähuone",
+     "ryhmätila",
+     "opetustila",
+     "kirjasto",
+     "musiikkiluokka"
+    ],
+    "sv": [
+     "klassrum",
+     "grupprum",
+     "lektionssal",
+     "bibliotek"
+    ],
+    "no": [
+     "klasserom",
+     "grupperom",
+     "bibliotek"
+    ],
+    "da": [
+     "klasseværelse",
+     "grupperum",
+     "bibliotek"
+    ],
+    "de": [
+     "klassenzimmer",
+     "klassenraum",
+     "gruppenraum",
+     "bibliothek",
+     "werkraum"
+    ],
+    "nl": [
+     "klaslokaal",
+     "groepsruimte",
+     "bibliotheek"
+    ],
+    "fr": [
+     "salle de classe",
+     "salle de groupe",
+     "bibliothèque",
+     "atelier"
+    ],
+    "es": [
+     "aula",
+     "sala de grupo",
+     "biblioteca",
+     "taller"
+    ],
+    "it": [
+     "aula",
+     "laboratorio",
+     "biblioteca"
+    ],
+    "pt": [
+     "sala de aula",
+     "biblioteca"
+    ],
+    "pl": [
+     "klasa",
+     "sala lekcyjna",
+     "biblioteka",
+     "pracownia"
+    ],
+    "et": [
+     "klassiruum",
+     "rühmaruum",
+     "raamatukogu"
+    ],
+    "ru": [
+     "класс",
+     "учебный класс",
+     "аудитория",
+     "групповая",
+     "библиотека",
+     "мастерская",
+     "лаборатория"
+    ],
+    "uk": [
+     "клас",
+     "аудиторія",
+     "бібліотека"
+    ]
+   },
+   "abbr": {
+    "en": [
+     "CLS"
+    ]
+   }
+  },
+  "assembly_hall": {
+   "class": "room_other",
+   "ru": "зал",
+   "terms": {
+    "en": [
+     "multi-purpose hall",
+     "multi purpose hall",
+     "multipurpose hall",
+     "sports hall",
+     "assembly hall",
+     "main hall",
+     "dining hall",
+     "school hall",
+     "gym",
+     "gymnasium",
+     "auditorium",
+     "hall (assembly)"
+    ],
+    "fi": [
+     "liikuntasali",
+     "juhlasali",
+     "monitoimisali",
+     "sali"
+    ],
+    "sv": [
+     "idrottshall",
+     "gymnastiksal"
+    ],
+    "no": [
+     "gymsal",
+     "flerbrukshall"
+    ],
+    "da": [
+     "idrætshal",
+     "festsal"
+    ],
+    "de": [
+     "turnhalle",
+     "sporthalle",
+     "mehrzweckhalle",
+     "mensa"
+    ],
+    "nl": [
+     "gymzaal",
+     "sporthal"
+    ],
+    "fr": [
+     "salle polyvalente",
+     "gymnase",
+     "réfectoire"
+    ],
+    "es": [
+     "salón de actos",
+     "gimnasio",
+     "polideportivo"
+    ],
+    "it": [
+     "palestra",
+     "aula magna",
+     "sala polivalente",
+     "refettorio"
+    ],
+    "pt": [
+     "ginásio",
+     "auditório",
+     "polivalente"
+    ],
+    "pl": [
+     "sala gimnastyczna",
+     "sala wielofunkcyjna"
+    ],
+    "et": [
+     "võimla",
+     "saal"
+    ],
+    "ru": [
+     "спортзал",
+     "актовый зал",
+     "многофункциональный зал",
+     "обеденный зал",
+     "спортивный зал"
+    ],
+    "uk": [
+     "спортзал",
+     "актова зала"
+    ]
+   },
+   "abbr": {}
+  },
+  "medical": {
+   "class": "room_other",
+   "ru": "медпункт",
+   "terms": {
+    "en": [
+     "medical room",
+     "medical inspection room",
+     "sick room",
+     "first aid",
+     "nurse"
+    ],
+    "fi": [
+     "terveydenhoitaja",
+     "lepohuone",
+     "sairaanhoitaja"
+    ],
+    "sv": [
+     "vilrum",
+     "skolsköterska"
+    ],
+    "no": [
+     "helsesøster"
+    ],
+    "da": [
+     "sundhedsplejerske"
+    ],
+    "de": [
+     "sanitätsraum",
+     "krankenzimmer"
+    ],
+    "nl": [
+     "ehbo",
+     "ziekenkamer"
+    ],
+    "fr": [
+     "infirmerie"
+    ],
+    "es": [
+     "enfermería"
+    ],
+    "it": [
+     "infermeria"
+    ],
+    "pt": [
+     "enfermaria"
+    ],
+    "pl": [
+     "gabinet lekarski",
+     "pielęgniarka"
+    ],
+    "et": [
+     "meditsiiniruum"
+    ],
+    "ru": [
+     "медпункт",
+     "медкабинет",
+     "изолятор"
+    ],
+    "uk": [
+     "медпункт",
+     "медкабінет"
+    ]
+   },
+   "abbr": {}
+  },
+  "servery": {
+   "class": "room_kitchen",
+   "ru": "раздаточная",
+   "terms": {
+    "en": [
+     "servery",
+     "serving kitchen",
+     "canteen kitchen",
+     "tea point",
+     "galley kitchen"
+    ],
+    "fi": [
+     "jakelukeittiö",
+     "keittokomero",
+     "minikeittiö"
+    ],
+    "sv": [
+     "serveringskök",
+     "kokskåp"
+    ],
+    "no": [
+     "anretning"
+    ],
+    "da": [
+     "anretterkøkken"
+    ],
+    "de": [
+     "ausgabeküche"
+    ],
+    "nl": [
+     "uitgifte"
+    ],
+    "fr": [],
+    "es": [],
+    "it": [
+     "sporzionamento"
+    ],
+    "pt": [
+     "copa"
+    ],
+    "pl": [
+     "zmywalnia",
+     "rozdzielnia"
+    ],
+    "et": [
+     "jaotusköök"
+    ],
+    "ru": [
+     "раздаточная",
+     "буфет",
+     "кухня-ниша"
+    ],
+    "uk": [
+     "роздавальня"
+    ]
+   },
+   "abbr": {
+    "fi": [
+     "KTK"
+    ]
+   }
+  }
+ }
+}

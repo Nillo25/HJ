@@ -38,7 +38,7 @@ ARC_MIN_PPM = 33.0  # двери по дугам — только если дв�
 WALL_ROOMS_MIN_PPM = 20.0  # помещения по стенам (рамки от ИИ) — только если комната 3 м на листе ≥ 60 px
 
 # менять при правках разбора, влияющих на сцену: повторная загрузка того же файла тогда разберёт его заново
-PIPELINE_VERSION = "2026-11-14.envelope6+sheet-tiles-door-verify+frame+mep-walls+fullres-pipes+label-room-types+long-sheet-no"
+PIPELINE_VERSION = "2026-11-14.envelope6+sheet-tiles-door-verify+frame+mep-walls+fullres-pipes+label-room-types+long-sheet-no+haiku-doors+tiled-inventory"
 
 THRESHOLDS = json.loads((Path(__file__).parent / "thresholds.json").read_text())
 
@@ -355,8 +355,17 @@ def analyze_sheet(img: np.ndarray, sc: Scene, full: np.ndarray | None = None, f:
     # на какие вопросы она отвечает, а где только сверяет YOLO — fp/route.json
     if os.environ.get("FP_INVENTORY", "1") != "0":
         from .inventory import read_inventory
+        from .inventory_tiles import MIN_SIDE, read_inventory_tiled
+        # большой чертёжный лист: опись по фрагментам полного разрешения (Haiku, объекты с координатами) —
+        # целый лист в 1568 px мелочь не видит (школа: двери 75 из ~130); квартиры — как было
+        big = drawing_sheet and full is not None and f and max(full.shape[:2]) >= MIN_SIDE and est.get("px_per_m")
         try:
-            inv, c3 = read_inventory(img)
+            if big:
+                bb = sheet.get("drawing_bbox")
+                inv, c3 = read_inventory_tiled(full, est["px_per_m"] / f,
+                                               [v / f for v in bb] if bb and len(bb) == 4 else None)
+            else:
+                inv, c3 = read_inventory(img)
             inv["cost_usd"] = round(c3, 6)
         except Exception as e:  # noqa: BLE001 — без описи ответы идут от YOLO
             inv, c3 = {"error": f"{type(e).__name__}: {e}"}, 0.0
@@ -385,32 +394,13 @@ if __name__ == "__main__":
     main()
 
 
-_ROOM_WORDS = {"room_bath": ("toilet", "restroom", "bath", "wc", "lavatory", "shower", "туалет", "санузел"),
-               "room_storage": ("storage", "store", "closet", "janitor", "кладов"),
-               "room_entry": ("corridor", "hall", "vestibule", "lobby", "entry", "коридор", "холл"),
-               "room_kitchen": ("kitchen", "кухня")}
-
-
 def _room_cls(name: str) -> str:
-    n = name.lower()
-    return next((c for c, words in _ROOM_WORDS.items() if any(w in n for w in words)), "room_other")
+    """Тип помещения по названию — словарь обозначений на 15 языках (fp/glossary.json); нет в словаре — прочее."""
+    from .glossary import room_class
+    return room_class(name)
 
 
-# только для типа по подписи (room_types_from_labels): жилые типы, которых нет в _ROOM_WORDS
-_LABEL_EXTRA = {"room_bedroom": ("bedroom", "dormitory", "sleeping", "спальн"),
-                "room_living": ("living", "lounge", "гостин"),
-                "room_outdoor": ("balcony", "terrace", "балкон", "террас")}
-
-
-def _label_cls(name: str) -> str:
-    n = name.lower()
-    # залы — не прихожая, хотя в названии «hall»
-    if re.search(r"multi[- ]?purpose|sports|assembly|dining|lecture|concert|exhibition|main hall", n):
-        return "room_other"
-    for c, words in _LABEL_EXTRA.items():
-        if any(w in n for w in words):
-            return c
-    return _room_cls(name)
+_label_cls = _room_cls  # тип по подписи на листе (room_types_from_labels) — тот же словарь
 
 
 def room_types_from_labels(sc: Scene, sheet: dict) -> dict:

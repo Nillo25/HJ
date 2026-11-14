@@ -851,3 +851,117 @@ def test_drawing_sheet_number_long_form():
         assert is_drawing_sheet(s), s
     for s in ("", None, "3", "12", "Plan 2", "KITCHEN"):
         assert not is_drawing_sheet(s), s
+
+
+def test_glossary_rooms_in_many_languages():
+    """Словарь обозначений (fp/glossary.json): сокращения финских квартир, полные названия на 15 языках,
+    длинное совпадение важнее короткого, составные подписи — оба вида по порядку."""
+    from fp.glossary import lookup, lookup_all, room_class
+    cases = {"MH2 12.5 m²": "bedroom", "K": "kitchen", "KH": "bathroom", "PH": "bathroom", "S": "sauna", "VH": "dressing",
+             "PARVEKE": "balcony", "KHH": "laundry", "SOVRUM": "bedroom", "Elternschlafzimmer": "bedroom", "SDB": "bathroom",
+             "Cocina": "kitchen", "Łazienka": "bathroom", "Rõdu": "balcony", "Санузел": "wc", "Лоджия": "balcony",
+             "Multi-Purpose Hall": "assembly_hall", "Entrance Hall": "entry", "Group Room": "classroom", "Stair B": "stair",
+             "Accessible Toilet": "wc", "Walk-in closet": "dressing"}
+    for label, kind in cases.items():
+        assert (lookup(label) or {}).get("kind") == kind, label
+    assert [m["kind"] for m in lookup_all("K/OH")] == ["kitchen", "living"]
+    assert room_class("Secondary Classroom") == "room_other" and room_class("VH") == "room_storage"
+    assert lookup("zzz qqq") is None and room_class(None) == "room_other"
+
+
+def test_glossary_user_term(tmp_path, monkeypatch):
+    """Дополнение пользователя — отдельный файл, сразу участвует в поиске; неизвестный вид — ошибка."""
+    import pytest
+    from fp import glossary
+    monkeypatch.setattr(glossary, "USER", tmp_path / "glossary_user.json")
+    glossary.reload()
+    assert glossary.lookup("XYZ") is None
+    assert glossary.add_term("XYZ", "dressing")["kind"] == "dressing"
+    assert glossary.lookup("xyz 3")["kind"] == "dressing"
+    with pytest.raises(ValueError):
+        glossary.add_term("Q1", "no-such-kind")
+    monkeypatch.undo()
+    glossary.reload()
+
+
+def test_cache_recreates_tables_after_file_removed(tmp_path):
+    """Сброс кэша при работающем сервере (файл перенесли) — запрос не падает «no such table: answers»."""
+    from fp import cache
+    p = tmp_path / "c.sqlite"
+    cache.configure(p)
+    p.unlink()
+    assert cache.get_answer("s", "q") is None
+    cache.configure(None)
+
+
+def test_user_corrections_change_answers_and_undo(tmp_path, monkeypatch):
+    """Исправления из чата (fp/corrections.py): тип помещения, лишний объект, число со слов пользователя,
+    обозначение в словарь; всё в журнале, отмена возвращает как было."""
+    from fp import glossary
+    from fp.query import call
+    from fp.scene import Scene
+    monkeypatch.setattr(glossary, "USER", tmp_path / "glossary_user.json")
+    glossary.reload()
+    sq = lambda x0, y0, s=10: [[x0, y0], [x0 + s, y0], [x0 + s, y0 + s], [x0, y0 + s]]
+    sc = Scene.build("x", 400, 200, [("room_bedroom", sq(0, 0, 100), 0.6), ("door", sq(50, 95), 0.7),
+                                      ("door", sq(150, 95), 0.7), ("window", sq(10, 0), 0.8)])
+    bed = next(r.id for r in sc.rooms)
+    doors = [o.id for o in sc.objects if o.cls == "door"]
+    assert call(sc, "count", {"cls": "door"}).answer == 2
+
+    a = call(sc, "set_room_type", {"room": bed, "type": "other"})
+    assert a.answer["now"] == "other" and sc.rooms[0].cls == "room_other" and sc.meta.pop("_dirty")
+    call(sc, "remove_objects", {"ids": [doors[1]]})
+    assert call(sc, "count", {"cls": "door"}).answer == 1
+    a = call(sc, "set_count", {"cls": "window", "value": 5})
+    assert call(sc, "count", {"cls": "window"}).answer == 5 and call(sc, "count", {"cls": "window"}).confidence == "high"
+    call(sc, "define_term", {"term": "QX", "kind": "dressing"})
+    assert glossary.lookup("QX 2")["kind"] == "dressing"
+    assert len(call(sc, "list_corrections", {}).answer) == 4
+
+    call(sc, "undo_correction", {})          # define_term: словарь остаётся, журнал короче
+    call(sc, "undo_correction", {})          # set_count
+    assert call(sc, "count", {"cls": "window"}).answer == 1
+    call(sc, "undo_correction", {})          # remove_objects — дверь вернулась
+    assert call(sc, "count", {"cls": "door"}).answer == 2
+    call(sc, "undo_correction", {})          # set_room_type
+    assert sc.rooms[0].cls == "room_bedroom"
+    assert call(sc, "undo_correction", {}).note == "на этом плане исправлений нет"
+    monkeypatch.undo()
+    glossary.reload()
+
+
+def test_correction_tools_are_offered_to_llm_and_not_cached():
+    from fp.query import CORRECTION_TOOLS, TOOLS
+    names = {t["name"] for t in TOOLS}
+    assert {"define_term", "set_room_type", "remove_objects", "set_count", "undo_correction"} <= names
+    assert CORRECTION_TOOLS <= names
+    kinds = next(t for t in TOOLS if t["name"] == "define_term")["input_schema"]["properties"]["kind"]["enum"]
+    assert "dressing" in kinds and "bedroom" in kinds
+
+
+def test_tiled_inventory_confidence_on_big_sheet():
+    """Большой лист с описью по фрагментам: отвечают детекции, согласие — с допуском; квартиры — точное совпадение."""
+    from fp.query import _agree
+    assert _agree(131, 103, True) and _agree(131, 75, True) is False and _agree(83, 65, True) and _agree(3, 4, True)
+    assert _agree(3, 4, False) is False and _agree(5, 5, False)
+
+
+def test_tiled_inventory_keeps_points_in_tile_core(monkeypatch):
+    """Объект на перекрытии двух фрагментов засчитывается один раз — тому, в чьём ядре его точка."""
+    import types
+    import numpy as np
+    from fp import inventory_tiles as IT
+    img = np.full((2000, 3000), 255, np.uint8)
+    img[::50, :] = 0                                   # не пустая бумага
+    calls = []
+
+    class Msgs:
+        def create(self, **kw):
+            calls.append(kw)
+            # каждый фрагмент «видит» дверь в одной и той же точке листа: x=1000/s, y=200/s в px full
+            return types.SimpleNamespace(stop_reason="end_turn", usage=types.SimpleNamespace(input_tokens=1, output_tokens=1),
+                                         content=[types.SimpleNamespace(type="text", text='{"items": [], "room_labels": []}')])
+    monkeypatch.setattr("anthropic.Anthropic", lambda: types.SimpleNamespace(messages=Msgs()))
+    inv, _ = IT.read_inventory_tiled(img, IT.WORK_PPM, None)     # масштаб 1:1
+    assert inv["method"] == "tiles" and inv["tiles"] == len(calls) and inv["doors"] == 0 and inv["floors"] == 1

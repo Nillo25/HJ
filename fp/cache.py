@@ -26,12 +26,7 @@ def configure(path: Path | str | None):
     global _path
     _path = Path(path) if path else None
     if _path:
-        _path.parent.mkdir(parents=True, exist_ok=True)
-        with _conn() as c:
-            c.execute("CREATE TABLE IF NOT EXISTS answers (scene TEXT, q TEXT, response TEXT, created REAL,"
-                      " hits INTEGER DEFAULT 0, PRIMARY KEY (scene, q))")
-            c.execute("CREATE TABLE IF NOT EXISTS templates (kind TEXT, q TEXT, calls TEXT, lang TEXT, created REAL,"
-                      " hits INTEGER DEFAULT 0, PRIMARY KEY (kind, q))")
+        _conn().close()
 
 
 def enabled() -> bool:
@@ -39,7 +34,15 @@ def enabled() -> bool:
 
 
 def _conn():
-    return sqlite3.connect(_path, timeout=5)
+    # таблицы — при каждом подключении: файл кэша могли удалить или перенести при работающем сервере
+    # (сброс кэша), тогда sqlite создаёт пустой файл и запрос падал с «no such table: answers»
+    _path.parent.mkdir(parents=True, exist_ok=True)
+    c = sqlite3.connect(_path, timeout=5)
+    c.execute("CREATE TABLE IF NOT EXISTS answers (scene TEXT, q TEXT, response TEXT, created REAL,"
+              " hits INTEGER DEFAULT 0, PRIMARY KEY (scene, q))")
+    c.execute("CREATE TABLE IF NOT EXISTS templates (kind TEXT, q TEXT, calls TEXT, lang TEXT, created REAL,"
+              " hits INTEGER DEFAULT 0, PRIMARY KEY (kind, q))")
+    return c
 
 
 def normalize(message: str) -> str:

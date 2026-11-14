@@ -146,6 +146,25 @@ PLAN_UNRELIABLE = float(os.environ.get("FP_PLAN_UNRELIABLE", "0.58"))
 PLAN_DOWNGRADE = os.environ.get("FP_PLAN_DOWNGRADE", "0") == "1"
 
 
+# большой чертёжный лист, опись по фрагментам (fp/inventory_tiles.py): отвечают наши детекции (YOLO по тайлам,
+# двери проверены ИИ по вырезкам), опись — второе мнение. На размеченном фрагменте школы детекции точнее описи:
+# двери 26/26 против 21/26, унитазы 4/4 против 3/4, окна 19 против 11
+TILED_YOLO = {"door", "window", "toilet", "sink", "shower_bathtub"}
+# опись по фрагментам недосчитывает мелочь (на школе ~20% дверей) — точного совпадения сотен объектов не бывает:
+# согласие = расхождение не больше TILED_TOL от большего числа (подобрано по одному листу — проверять на новых)
+TILED_TOL = 0.25
+
+
+def _tiled(inv: dict) -> bool:
+    return inv.get("method") == "tiles"
+
+
+def _agree(a: int, b: int, tiled: bool) -> bool:
+    if not tiled:
+        return a == b
+    return abs(a - b) <= max(1, round(TILED_TOL * max(a, b)))
+
+
 def plan_check(scene: Scene) -> dict:
     """Доля типов, где модель и опись плана дают разные числа (0 = всё совпало). Без описи — не оцениваем."""
     inv = scene.meta.get("inventory") or {}
@@ -157,7 +176,7 @@ def plan_check(scene: Scene) -> dict:
         if not isinstance(y, (int, float)):
             continue
         n += 1
-        if int(y) != int(inv[key]):
+        if not _agree(int(y), int(inv[key]), _tiled(inv)):
             diff.append(cls)
     if not n:
         return {"reliable": None, "disagreement": None, "classes": []}
@@ -166,6 +185,14 @@ def plan_check(scene: Scene) -> dict:
 
 
 def count(scene: Scene, cls: str, room: str | None = None) -> Answer:
+    ov = (scene.meta.get("count_overrides") or {}).get(cls)
+    if ov is not None and not room:  # число со слов пользователя (fp/corrections.py:set_count)
+        try:
+            ids = _count_yolo(scene, cls, None).ids
+        except Exception:  # noqa: BLE001
+            ids = []
+        return Answer(ov, "шт", "high", 1.0, ids, [{"kind": "user", "class": cls, "count": ov}],
+                      "указано пользователем")
     a = _count_plan(scene, cls, room)
     if room or a.answer is None:
         return a
@@ -193,11 +220,14 @@ def _count_plan(scene: Scene, cls: str, room: str | None = None) -> Answer:
     v = int(inv[key])
     y = None if cls in VIRTUAL else _count_yolo(scene, cls, None)
     src = ROUTE.get(cls, "inventory" if y is None else "yolo")
+    tiled = _tiled(inv)
+    if tiled and cls in TILED_YOLO:
+        src = "yolo"
     order = ["low", "medium", "high"]
     ev = [{"kind": "inventory", "class": cls, "count": v, "model": inv.get("model")}]
     if y is None:  # второго источника нет
         return Answer(v, "шт", "medium", 0.8, [], ev, "по описи плана (ИИ по картинке)")
-    agree = y.answer == v
+    agree = _agree(int(y.answer), v, tiled)
     if src == "yolo" and y.answer == 0 and v >= 3:
         # свои способы не нашли ничего, а опись видит несколько — на чертёжном листе «0 окон в здании» почти
         # наверняка значит, что объекты нарисованы непривычно (общежитие A-2: 0 против 96). На eval_set
@@ -232,6 +262,13 @@ def _count_yolo(scene: Scene, cls: str, room: str | None = None) -> Answer:
                  f"подтверждено дугой {n_conf})")
         a.confidence = "medium"
         a.note = extra
+    dv = scene.meta.get("door_verify") or {}
+    if cls == "door" and dv.get("done") and isinstance(a.answer, int) and not room:
+        # чертёжный лист: каждая дверь проверена ИИ по вырезке (fp/door_verify.py). Калибровка по пограничным
+        # детекциям YOLO (обучена на квартирах) тут ни о чём: на eval/doors_gt.json проверка дала 32/32 без лишних
+        a.confidence, a.score = "high", max(a.score, 0.9)
+        a.note = (f"каждая дверь проверена ИИ по вырезке: подтверждено {dv.get('doors')} из "
+                  f"{dv.get('candidates')} кандидатов")
     wg = scene.meta.get("window_glazing") or {}
     if cls == "window" and wg.get("done") and isinstance(a.answer, int):
         n_gl = sum(1 for e in a.evidence if e.get("kind") == "glazing")
@@ -595,12 +632,52 @@ TOOLS = [
     {"name": "clear", "description": "Снять всю подсветку с плана.",
      "input_schema": {"type": "object", "properties": {}, "additionalProperties": False}},
 ]
+
+
+def _correction_tools() -> list[dict]:
+    """Исправления и данные от пользователя (fp/corrections.py): меняют этот план, журнал можно отменить."""
+    from .corrections import ROOM_TYPES
+    from .glossary import kinds
+    return [
+        {"name": "define_term", "description": "The user explains a mark/abbreviation used on plans ('VH is a walk-in "
+                                        "closet', 'TK = vestibule'). Remembered in the glossary for all plans; room types "
+                                        "from labels on this sheet are recomputed.",
+         "input_schema": {"type": "object", "properties": {
+             "term": {"type": "string", "description": "the mark exactly as on the plan, e.g. 'VH'"},
+             "kind": {"type": "string", "enum": sorted(kinds())}},
+             "required": ["term", "kind"], "additionalProperties": False}},
+        {"name": "set_room_type", "description": "The user corrects a room's type ('this is not a bedroom, it is an "
+                                          "office'). room = id from list_rooms (e.g. bedroom_1).",
+         "input_schema": {"type": "object", "properties": {
+             "room": {"type": "string"}, "type": {"type": "string", "enum": ROOM_TYPES}},
+             "required": ["room", "type"], "additionalProperties": False}},
+        {"name": "remove_objects", "description": "The user says objects were detected by mistake ('this door is not "
+                                           "a door', 'there are no windows in the corridor'): remove them by id. Get the "
+                                           "ids from a highlight / objects_in result first; never guess ids.",
+         "input_schema": {"type": "object", "properties": {"ids": {"type": "array", "items": {"type": "string"}}},
+                          "required": ["ids"], "additionalProperties": False}},
+        {"name": "set_count", "description": "The user states the true number on the whole plan ('there are 12 "
+                                      "windows', 'actually 9 doors'): from now on count() of this class answers it.",
+         "input_schema": {"type": "object", "properties": {
+             "cls": {"type": "string", "enum": _CLS_ENUM}, "value": {"type": "integer"}},
+             "required": ["cls", "value"], "additionalProperties": False}},
+        {"name": "undo_correction", "description": "Undo the last correction on this plan ('undo', 'put it back').",
+         "input_schema": {"type": "object", "properties": {}, "additionalProperties": False}},
+        {"name": "list_corrections", "description": "List the corrections the user made on this plan.",
+         "input_schema": {"type": "object", "properties": {}, "additionalProperties": False}},
+    ]
+
+
+TOOLS += _correction_tools()
 for _t in TOOLS:
     _t["strict"] = True
 
+from .corrections import FUNCS as _CORR  # noqa: E402
+
 FUNCS = {"highlight": highlight, "highlight_ids": highlight_ids, "count": count, "list_rooms": list_rooms,
          "objects_in": objects_in, "area": area, "legend": legend, "rooms": rooms, "clear": clear,
-         "pipes": pipes, "fittings": fittings}
+         "pipes": pipes, "fittings": fittings, **_CORR}
+CORRECTION_TOOLS = set(_CORR)
 
 
 def call(scene: Scene, name: str, args: dict) -> Answer:

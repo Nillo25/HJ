@@ -205,9 +205,14 @@ def chat_ep(plan_id: str, body: ChatIn):
         if r:
             return r
     try:
-        return chat(sc, body.message, body.history)
+        out = chat(sc, body.message, body.history)
     except Exception as e:  # noqa: BLE001 — показываем ошибку в чате, а не 500 без текста
         raise HTTPException(500, f"{type(e).__name__}: {e}")
+    # пользователь исправил план в чате (fp/corrections.py) — сохранить сцену; интерфейс перечитает её
+    if sc.meta.pop("_dirty", None):
+        sc.save(_dir(plan_id))
+        out["scene_changed"] = True
+    return out
 
 
 class ScaleIn(BaseModel):

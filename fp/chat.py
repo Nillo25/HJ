@@ -9,7 +9,7 @@ import time
 
 from . import cache
 from .classes import LABELS_RU, SYNONYMS
-from .query import TOOLS, Answer, call
+from .query import CORRECTION_TOOLS, TOOLS, Answer, call
 from .scene import Scene
 
 # Разбор вопроса — дешёвая модель (Stoa: цена ответа — 25% оценки). Opus — через FP_CLAUDE_MODEL=claude-opus-5-5
@@ -299,7 +299,9 @@ def chat(scene: Scene, message: str, history: list[dict] | None = None, use_llm:
                 "answered_by": None, "cost_usd": 0.0, "latency_ms": round((time.perf_counter() - t0) * 1000)}
     out = _chat_llm(scene, message, history or [])
     errors = out.pop("_errors", 0)
-    if skey and out["calls"] and not errors:
+    # правки меняют сцену: ответ на них не кэшируем (после «отмени» та же сцена вернула бы «готово» без правки)
+    corrected = any(c["tool"] in CORRECTION_TOOLS for c in out["calls"])
+    if skey and out["calls"] and not errors and not corrected:
         cache.put_answer(skey, q, out)
         lang = _lang(message)
         if lang and _templatable(out["calls"]):
@@ -371,6 +373,11 @@ def _system_prompt(scene: Scene) -> str:
         "- Keep it to one or two short sentences with the number. Do not mention scores, element ids or tool names "
         "unless the user asks.\n"
         "- If the tool result has confidence low, add a short request to check the result on the plan.\n"
+        "- The user may correct the plan or teach you: explaining a mark ('VH is a walk-in closet') -> define_term; "
+        "'this room is not a bedroom' -> set_room_type (find the room id with list_rooms first); 'this door is wrong' "
+        "-> remove_objects with ids taken from a previous highlight/objects_in result; 'there are 12 windows' -> "
+        "set_count; 'undo' -> undo_correction. Confirm in one sentence what changed. Only apply a correction the user "
+        "clearly states; if it is ambiguous which objects they mean, ask instead of guessing.\n"
         f"Plan summary: objects {json.dumps(counts, ensure_ascii=False)}; rooms: {rooms}.{sheet_line}{spaces_line}"
     )
 
