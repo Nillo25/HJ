@@ -1,7 +1,6 @@
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
-import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -11,7 +10,7 @@ import path from 'node:path';
 
 import {
   INDEX_VERSION, KINDS, SOURCE_BY_KIND, UPLOADS, cleanupUploads, elementCount, ensureUploads, filesOf, floorsOf,
-  getSession, latestEval, listSessions, queryElements, metaPath,
+  getSession, listSessions, queryElements, metaPath,
   type Element, type Kind, type Session,
 } from './db.js';
 import { ask } from './ask.js';
@@ -27,7 +26,6 @@ const INDEX_TIMEOUT_S = Number(process.env.INDEX_TIMEOUT_S ?? 120);
 const EXT_BY_KIND: Record<Kind, string> = { dxf: '.dxf', ifc: '.ifc', pdf: '.pdf', png: '.png' };
 
 const app = new Hono();
-app.use('/api/*', cors());
 
 /* ------------------------------------------------------------ drawings */
 
@@ -92,7 +90,7 @@ app.get('/api/drawings/:id/image', (c) => {
 app.get('/api/drawings/:id/sheet.svg', (c) => {
   const s = getSession(c.req.param('id'));
   const abs = s ? path.join(s.dir, 'sheet.svg') : '';
-  if (!s || (s.meta.kind !== 'pdf' && s.meta.kind !== 'dxf') || !existsSync(abs)) return c.json({ error: 'no sheet' }, 404);
+  if (!s || s.meta.kind !== 'dxf' || !existsSync(abs)) return c.json({ error: 'no sheet' }, 404);
   return c.body(Readable.toWeb(createReadStream(abs)) as ReadableStream, 200, {
     'content-type': 'image/svg+xml', 'content-length': String(statSync(abs).size),
   });
@@ -107,20 +105,6 @@ app.get('/api/drawings/:id/plan', (c) => {
     drawing_id: s.drawing.id, type: null, subtype: null, floor: null, literal: null,
   }) as Element[];
   if (!els.some((e) => e.bbox)) return c.json({ error: 'no geometry' }, 404);
-
-  // vector PDF sheet: the rendered page is the background, schedule rows are boxes on it
-  if (s.meta.kind === 'pdf') {
-    const sheet = path.join(s.dir, 'sheet.svg');
-    if (!existsSync(sheet)) return c.json({ error: 'sheet was not rendered' }, 404);
-    const head = readFileSync(sheet, 'utf8').slice(0, 300).match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
-    if (!head) return c.json({ error: 'bad sheet' }, 500);
-    const [W, H] = [Number(head[1]), Number(head[2])];
-    const rows = els.filter((e) => e.bbox).map((e) => {
-      const b = JSON.parse(e.bbox!);
-      return { id: e.id, label: e.label, bbox: [b[0], H - b[3], b[2], H - b[1]] };
-    });
-    return c.json({ viewBox: [0, 0, W, H], background: `/api/drawings/${s.uid}/sheet.svg`, layers: { rows } });
-  }
 
   // IFC models have storeys: one storey at a time, the one with the most drawn objects by default
   const all = els;
@@ -224,7 +208,7 @@ app.get('/api/eval/latest', (c) => {
   const f = process.env.EVAL_JSON ?? path.resolve('accuracy.json');
   let summary = null;
   try { summary = JSON.parse(readFileSync(f, 'utf8')); } catch { /* no benchmark has been run here */ }
-  return c.json({ summary, rows: latestEval() });
+  return c.json({ summary });
 });
 
 /* ------------------------------------------------- upload and indexing */
@@ -234,6 +218,7 @@ const jobs = new Map<string, Job>();
 
 function finish(job: Job, ok: boolean, why?: string) {
   job.finished = true;
+  setTimeout(() => { if (jobs.get(job.id) === job) jobs.delete(job.id); }, 15 * 60_000).unref();
   job.stage = ok ? 'ready' : 'failed';
   if (!ok && why) job.log.push(why);
   if (ok) { const s = getSession(job.id); job.drawings = s ? [card(s)] : []; }
@@ -303,7 +288,7 @@ app.post('/api/upload', async (c) => {
     if (kind !== 'dxf') return finish(job, true);
     // DXF: draw the drawing so answers can be shown on it (a PDF is drawn by the browser); a failure here is not fatal
     job.stage = 'rendering';
-    const r = spawn(PYTHON, [path.resolve(kind === 'dxf' ? '../indexer/render_dxf.py' : '../indexer/render_pdf.py'), path.join(dir, name), path.join(root, 'sheet.svg')]);
+    const r = spawn(PYTHON, [path.resolve('../indexer/render_dxf.py'), path.join(dir, name), path.join(root, 'sheet.svg')]);
     const rt = setTimeout(() => r.kill(), INDEX_TIMEOUT_S * 1000);
     r.on('error', () => { clearTimeout(rt); finish(job, true); });
     r.on('close', () => { clearTimeout(rt); finish(job, true); });

@@ -11,7 +11,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { recordFailure, recordUsage, type Usage } from './usage.js';
-import { cacheGet, cachePut, floorsOf, queryElements, type Element, type Session } from './db.js';
+import { cacheGet, cachePut, floorsOf, queryElements, type Session } from './db.js';
 import { PYTHON } from './py.js';
 
 /** Question parsing model. LLM_PROVIDER=openai|google, LLM_MODEL overrides the default. */
@@ -240,6 +240,7 @@ const Query = z.discriminatedUnion('fn', [
 /* ------------------------------------------------------- кэш шаблонов */
 
 /** «Сколько окон на плане "3.korrus"?» -> «сколько окон на плане {0}» + ["3.korrus"] */
+/** Exported for the tests. */
 export function templatize(q: string): { template: string; slots: string[] } {
   const slots: string[] = [];
   // one pass: a quoted label or a number becomes the next slot; digits inside a quoted label stay in it
@@ -257,6 +258,7 @@ export function templatize(q: string): { template: string; slots: string[] } {
  * into the template and answer every similar question with it, so such a result is not cached.
  */
 const FREE_TEXT = new Set(['label', 'floor', 'literal']);
+/** Exported for the tests. */
 export function abstractArgs(args: Record<string, unknown>, slots: string[], question: string): Record<string, unknown> | null {
   const q = question.toLowerCase();
   const out: Record<string, unknown> = {};

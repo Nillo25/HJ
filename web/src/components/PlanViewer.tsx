@@ -9,7 +9,6 @@ const STYLE: Record<string, { fill: string; stroke: string; width: number; label
   doors: { fill: '#fde68a', stroke: '#b45309', width: 1.5, label: 'Doors' },
   windows: { fill: '#bae6fd', stroke: '#0284c7', width: 1.5, label: 'Windows' },
   fixtures: { fill: '#ddd6fe', stroke: '#6d28d9', width: 1.5, label: 'Fixtures' },
-  rows: { fill: 'transparent', stroke: 'none', width: 1, label: 'Schedule rows' },
   slabs: { fill: '#f8fafc', stroke: '#e2e8f0', width: 0.5, label: 'Slabs' },
   columns: { fill: '#64748b', stroke: '#334155', width: 1, label: 'Columns' },
   beams: { fill: 'none', stroke: '#94a3b8', width: 0.8, label: 'Beams' },
@@ -17,7 +16,7 @@ const STYLE: Record<string, { fill: string; stroke: string; width: number; label
   railings: { fill: 'none', stroke: '#94a3b8', width: 0.8, label: 'Railings' },
   furniture: { fill: '#f1f5f9', stroke: '#94a3b8', width: 0.8, label: 'Furniture' },
 };
-const ORDER = ['slabs', 'rooms', 'apartments', 'walls', 'columns', 'beams', 'stairs', 'railings', 'furniture', 'windows', 'doors', 'fixtures', 'rows'];
+const ORDER = ['slabs', 'rooms', 'apartments', 'walls', 'columns', 'beams', 'stairs', 'railings', 'furniture', 'windows', 'doors', 'fixtures'];
 const FOUND = '#e11d48';
 const MAX_BADGES = 99;
 

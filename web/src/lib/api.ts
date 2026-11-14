@@ -29,7 +29,7 @@ export type Evidence = {
   volume?: number | null;
 };
 
-export type UsageItem = { model: string; input_tokens: number; output_tokens: number; cost_usd: number };
+type UsageItem = { model: string; input_tokens: number; output_tokens: number; cost_usd: number };
 
 export type Part = { group: string; label: string; count: number; area: number; evidence: Evidence[] };
 export type Alternative = { label: string; answer: number; unit?: string; confidence?: number; evidence: Evidence[] };
@@ -75,7 +75,6 @@ async function j<T>(r: Response): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-export const getDrawings = () => fetch('/api/drawings?limit=500').then(r => j<{ drawings: Drawing[] }>(r)).then(d => d.drawings);
 export const getDrawing = (id: string) => fetch(`/api/drawings/${id}`).then(r => j<Drawing>(r));
 export const getPlan = (id: string, floor?: number | null) => fetch(`/api/drawings/${id}/plan${floor != null ? `?floor=${floor}` : ''}`).then(r => (r.ok ? (r.json() as Promise<Plan>) : null));
 export const getUsage = () => fetch('/api/usage').then(r => j<UsageTotals>(r));

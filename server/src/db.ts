@@ -37,7 +37,7 @@ export const INDEX_VERSION = (() => {
   return h.digest('hex').slice(0, 12);
 })();
 
-export const UID_RE = /^[0-9a-f]{16}$/;
+const UID_RE = /^[0-9a-f]{16}$/;
 
 export type Element = {
   id: number; drawing_id: number; file_id: number; floor_id: number | null;
@@ -47,7 +47,7 @@ export type Element = {
   source_ref: string | null; confidence: number; is_primary: number; props: string | null;
 };
 
-export type Meta = { kind: Kind; fileName: string; createdAt: number; ready: boolean; indexVersion?: string };
+type Meta = { kind: Kind; fileName: string; createdAt: number; ready: boolean; indexVersion?: string };
 export type Session = {
   uid: string; dir: string; dbPath: string; db: Database.Database; meta: Meta;
   drawing: { id: number; name: string; source: string; status: string; capabilities: any };
@@ -57,7 +57,7 @@ const open = new Map<string, Session>();
 
 export const metaPath = (uid: string) => path.join(UPLOADS, uid, 'meta.json');
 
-export function readMeta(uid: string): Meta | null {
+function readMeta(uid: string): Meta | null {
   try { return JSON.parse(readFileSync(metaPath(uid), 'utf8')); } catch { return null; }
 }
 
@@ -154,17 +154,3 @@ const cacheGetStmt = cacheDb.prepare('SELECT fn, args FROM question_cache WHERE 
 const cachePutStmt = cacheDb.prepare('INSERT OR IGNORE INTO question_cache(template, fn, args) VALUES (?, ?, ?)');
 export const cacheGet = (t: string) => cacheGetStmt.get(t) as { fn: string; args: string } | undefined;
 export const cachePut = (t: string, fn: string, args: string) => cachePutStmt.run(t, fn, args);
-
-/* Optional: results of an eval run, for development only. */
-export function latestEval() {
-  const p = process.env.EVAL_DB;
-  if (!p || !existsSync(p)) return [];
-  const d = new Database(p, { readonly: true });
-  try {
-    return d.prepare(
-      `SELECT source, q_type, verdict, COUNT(*) AS n, AVG(cost_usd) AS avg_cost, AVG(latency_ms) AS avg_ms
-         FROM eval_results
-        WHERE run_id = (SELECT run_id FROM eval_results ORDER BY id DESC LIMIT 1)
-        GROUP BY source, q_type, verdict`).all();
-  } catch { return []; } finally { d.close(); }
-}
