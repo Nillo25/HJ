@@ -61,6 +61,13 @@ volume `/data` (`UPLOADS_DIR`, `CACHE_DB`). The model key and prices come from t
 (`LLM_PROVIDER`, `LLM_MODEL`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `LLM_PRICE_IN/OUT`, `LLM_RPM`). Other settings:
 `UPLOAD_MAX_MB` (100), `INDEX_TIMEOUT_S` (120), `UPLOAD_TTL_HOURS` (24), `VIEWER_MAX_MB` (150), `PYTHON_BIN`.
 
+### Railway
+
+Build from the Dockerfile. Variables: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `LLM_PROVIDER`, `LLM_MODEL`, `LLM_PRICE_IN`, `LLM_PRICE_OUT`
+(copy them from `server/.env`), `TRUST_PROXY=1`, and `RAILWAY_RUN_UID=0` (a Railway volume is mounted as root, the image runs as `node`).
+Add a volume mounted at `/data` so uploads and the question cache survive a deploy. `PORT` is set by Railway.
+Healthcheck path: `/api/usage`. A 100 MB IFC needs about 1 GB of memory while it is parsed.
+
 ### Limits (flood protection, no login)
 
 | Setting | Default | What it does |
@@ -75,8 +82,8 @@ volume `/data` (`UPLOADS_DIR`, `CACHE_DB`). The model key and prices come from t
 
 Requests from this machine and from private networks (loopback, 10.x, 172.16-31.x, 192.168.x, which includes Docker's gateway)
 are **not** rate limited, so running the code, `indexer/bench.py` or the container on one's own computer is never slowed down
-(`RATE_LIMIT_PRIVATE=1` limits them too). Behind a reverse proxy set `TRUST_PROXY=1`: the client address is then read from
-`X-Forwarded-For`; without it every request looks like the proxy's private address and nothing is limited. A question is at most
+(`RATE_LIMIT_PRIVATE=1` limits them too). Behind a reverse proxy set `TRUST_PROXY=1` (the number of proxies in front): the client address is then read from
+the end of `X-Forwarded-For`, where the proxy writes it (the left side can be forged by the client); without it every request looks like the proxy's private address and nothing is limited. A question is at most
 2000 characters. `0` switches a limit off. There is no authentication.
 
 Needs Python 3.10+ (set `PYTHON_BIN` when the default `python3` is older) and Node 22+. `better-sqlite3` is the only native Node

@@ -4,14 +4,16 @@
  *  - a token bucket per client address on the routes that cost something (ask, upload);
  *  - requests from this machine or a private network are NOT limited unless RATE_LIMIT_PRIVATE=1, so running the code,
  *    the benchmark (indexer/bench.py) or the Docker image on one's own computer is never slowed down;
- *  - behind a reverse proxy set TRUST_PROXY=1 so the real address is read from X-Forwarded-For, otherwise every request
+ *  - behind a reverse proxy set TRUST_PROXY=<number of proxies, usually 1> so the real address is read from X-Forwarded-For, otherwise every request
  *    looks like the proxy's private address and nothing is limited.
  * Every number is an environment variable; 0 switches that limit off.
  */
 import { getConnInfo } from '@hono/node-server/conninfo';
 import type { Context, MiddlewareHandler } from 'hono';
 
-const TRUST_PROXY = process.env.TRUST_PROXY === '1';
+// number of reverse proxies in front (0 = none). The client address is the entry that many places from the END of
+// X-Forwarded-For: the left side is written by the client and can be forged, the right side is added by our own proxies.
+const PROXY_HOPS = Math.max(0, Math.floor(Number(process.env.TRUST_PROXY ?? 0)) || 0);
 const LIMIT_PRIVATE = process.env.RATE_LIMIT_PRIVATE === '1';
 
 export const limit = (name: string, fallback: number) => {
@@ -20,9 +22,10 @@ export const limit = (name: string, fallback: number) => {
 };
 
 export function clientIp(c: Context): string {
-  if (TRUST_PROXY) {
-    const xff = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
-    if (xff) return xff;
+  if (PROXY_HOPS > 0) {
+    const parts = c.req.header('x-forwarded-for')?.split(',').map((x) => x.trim()).filter(Boolean) ?? [];
+    const ip = parts[parts.length - PROXY_HOPS];
+    if (ip) return ip;
   }
   try { return getConnInfo(c).remote.address ?? 'unknown'; } catch { return 'unknown'; }
 }
