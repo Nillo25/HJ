@@ -40,6 +40,14 @@ Judges upload files, one set at a time, and ask several questions about it. Ther
 - Keep until the per-upload path works and eval passes there: data/opening_test.db, data/demo.db, app.db (do not delete earlier). Then remove app.db and data/sync.tgz from the working flow, drop the server's global DB_PATH, and make the example chips load from data/examples.json by file format only.
 - Candidates to delete after that (ask me first): app.db, unknown_labels.txt, docs/ifc-viewer-spike/ (abandoned), data/sync.tgz.
 
+## Routing: manual, by the user (not a goal of the task; analysis is)
+The user uploads files as one batch and picks the kind of material in the UI; we do not auto-detect it.
+- Kind "DXF set": batch of DXF + PNG/PDF with the same stem -> one drawing (DXF is parsed, PNG/PDF is the underlay for the plan view).
+- Kind "IFC": one IFC file, questions only, no viewer. Whole-model free-form questions go to the facts/`report` path, numeric ones to templates.
+- Kind "Opening design (PDF)": one vector PDF sheet, schedules and text questions only, no viewer.
+- Kind "PNG (raster plan, cubicasa-style)": a lone PNG; the user selects it explicitly. It goes to the raster/vision path, which is owned by another person and on hold: show an honest "not supported yet" refusal until that lands, and keep the route a clean plug-in point.
+The selected kind is sent with the upload and stored with the drawing; the server picks the parser and the question path from it, not from file sniffing. Mixed or mismatched batches (e.g. an IFC with a DXF) are rejected with a clear message.
+
 ## Then (see docs/backlog.md)
 A700 (20 q) and A-701 (3 q) schedules; swiss leftovers (fixtures, literal-label areas, double apartments); accuracy panel in the UI; needs_clarification flow; PNG/PDF underlay for DXF; deploy image (Python + Node + pdfminer.six); submission deliverables (deck, video, demo set, peer review; freeze 08:00, submit by 10:00). cubicasa5k is with another person: do not touch.
 
