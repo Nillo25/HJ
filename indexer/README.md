@@ -1,76 +1,30 @@
-# Индексатор и стенд оценки
+# Indexer and evaluation harness
 
-Черновик. Прогонялось только по кускам — ночные проверки делались отдельными
-скриптами, здесь они собраны в один конвейер. Первый запуск наверняка упадёт
-пару раз; это нормально, чини по месту или кидай мне ошибку.
+Python 3.10+, standard library plus `pdfminer.six` (pure Python). No ifcopenshell, no ezdxf, no
+pymupdf: DXF and IFC (STEP) are read by our own parsers (`docs/adr/0003`).
 
-## Установка
+    pip install -r requirements.txt
+    python index.py <dataset> --db /tmp/x.db --only swiss_dwellings    # or ifc_models, ifc_bench, opening_design
+    python eval.py  <dataset> --db /tmp/x.db --source swiss_dwellings --show 12
+    python ask_cli.py --db /tmp/x.db --drawing NAME --question "..."
+    python ifc_facts.py --db /tmp/x.db --drawing ac20_arc               # facts for free-form IFC questions
 
-```bash
-pip install ifcopenshell pymupdf
-```
+`eval.py` needs a DB indexed first. `--api http://localhost:3000/api/ask` runs the same questions over
+HTTP. Results: right / wrong / refused per source and type; language-deduplicated (7990 -> 2335).
 
-`ezdxf` не нужен — парсер DXF свой, на голом разборе пар «код / значение».
-
-## Запуск
-
-```bash
-# всё
-python index.py ~/Downloads/junction-dataset-preview --db app.db
-
-# по одному источнику, пока отлаживаешь
-python index.py ~/Downloads/junction-dataset-preview --only swiss_dwellings
-python index.py ~/Downloads/junction-dataset-preview --only ifc_models
-
-# точность
-python eval.py ~/Downloads/junction-dataset-preview --source swiss_dwellings
-python eval.py ~/Downloads/junction-dataset-preview            # всё
-
-# когда поднимется Hono — то же самое, но через HTTP
-python eval.py ~/Downloads/junction-dataset-preview --api http://localhost:3000/api/ask
-```
-
-## Файлы
-
-| файл | что |
+| file | what |
 |---|---|
-| `schema.sql` | таблицы из контракта |
-| `labels.py` | нормализация подписей + ручной словарь |
-| `parse_dxf.py` | DXF swiss_dwellings |
-| `parse_ifc.py` | IFC через ifcopenshell |
-| `parse_pdf.py` | **не написан** — векторный PDF, opening_design |
-| `index_raster.py` | **не написан** — PNG cubicasa5k |
-| `answer.py` | функции поверх базы + шаблоны вопросов |
-| `eval.py` | прогон и таблица точности |
+| `schema.sql` | tables from `docs/contract.md` |
+| `index.py` | walks a dataset or an upload folder `<root>/data/<source>/<files>`, groups files by stem, parses, writes |
+| `parse_dxf.py` | swiss_dwellings DXF: rooms, apartments, windows, doors, walls, fixtures |
+| `group.py` | clustering of DXF primitives, fixture classification, size histograms |
+| `parse_ifc.py` | STEP reader, storeys, elements, quantities, building row with header and application |
+| `parse_pdf.py` | vector PDF schedules (door schedule, finish room schedule) via pdfminer |
+| `labels.py` | room label normalisation and seed dictionary |
+| `answer.py` | functions over the DB and the question templates `T` |
+| `ask_cli.py` | one question to JSON; the server calls it first |
+| `ifc_facts.py` | facts sheet of one IFC model for the model-phrased report |
+| `eval.py` | evaluation harness |
 
-## Что заведомо не готово
-
-**Сантехника в DXF.** Всё лежит на слое `FIXTURE` без различения: унитаз,
-раковина, ванна. В базу пишется `type='fixture', subtype=NULL`, поэтому
-вопросы про унитазы и раковины сейчас дадут **ноль**. Различать по форме и
-размеру: окружности малого радиуса — скорее раковины, вытянутые
-прямоугольники — ванны. Смотреть на реальные значения в `props`.
-
-**Двери в DXF — 56%.** Считаются как дуги на слое `DOOR`. Дуга есть только у
-распашной двери: раздвижные её не имеют, двустворчатые дают две. Нужна
-группировка примитивов по соприкосновению, а не подсчёт дуг.
-
-**Площадь пронумерованных помещений.** Фильтр `numbered_indoor` написан, но
-на 65 файлах не проверялся. Прошлая наивная версия (сумма всех контуров)
-давала 15%.
-
-**Квартиры — 84%.** Десять файлов из 65 мимо. Посмотреть, чем они отличаются.
-
-**Окна — 100%**, не трогать. Правило «три полилинии на слое `WINDOW` = одно
-окно» сошлось на всех 65 файлах.
-
-## Порядок работы
-
-1. `index.py --only swiss_dwellings`, потом `eval.py --source swiss_dwellings`.
-   Получишь первую цифру. Она будет плохой.
-2. Чинить по порядку убывания числа ошибок: площади → двери → сантехника.
-   После каждой правки — прогон, это секунды.
-3. То же для `ifc_models`.
-4. Только потом cubicasa.
-
-Не чинить то, что интересно. Чинить то, где больше всего ошибок в таблице.
+Rules per format and measured results: `docs/knowledge.md`. Known gaps: no per-file time or page limit
+(large archive PDFs hang a batch run), no parser version in the DB, raster (PNG) not parsed.

@@ -4,6 +4,8 @@ Paste into Claude Code started in the repo root.
 
 ---
 
+FIRST read CLAUDE.md, docs/knowledge.md (everything learned so far), docs/backlog.md and docs/adr/. The text below is the task list.
+
 You are continuing work on "North Line", our Junction 2026 submission for the Stoa challenge "Make Blueprints Talk". Work in this repo. Answer me in Russian, dry and short. Code comments in English, no fluff. Never print or echo secrets; keys live only in server/.env (git-ignored).
 
 ## Goal

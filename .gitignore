@@ -13,3 +13,4 @@ server/public/
 server/uploads/
 web/node_modules/
 .env
+.idea/
