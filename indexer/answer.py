@@ -54,13 +54,13 @@ def resolve_drawing(con, drawing: str):
 # --------------------------------------------------------------- functions
 
 def _rows(con, drawing, **w):
-    q = ["SELECT * FROM elements WHERE drawing_id=(SELECT id FROM drawings WHERE name=?)"]
+    q = ["SELECT * FROM elements WHERE is_primary=1 AND drawing_id=(SELECT id FROM drawings WHERE name=?)"]
     args = [drawing]
     for k, v in w.items():
         if v is None:
             continue
         if k == "floor":
-            q.append("AND floor_id=(SELECT id FROM floors WHERE name=? AND "
+            q.append("AND floor_id=(SELECT id FROM floors WHERE LOWER(name)=LOWER(?) AND "
                      "drawing_id=(SELECT id FROM drawings WHERE name=?))")
             args += [v, drawing]
         elif k == "label_literal":
@@ -146,6 +146,10 @@ def list_floors(con, drawing):
 # judge will miss and fall through to the LLM path.
 
 T = [
+    # --- ifc_models: totals over one storey ---
+    (r"total (?:net )?(?P<what>floor area|side area|length|volume)\b.*?of all "
+     r"(?P<kind>rooms \(spaces\)|walls|slabs|beams|columns) on ['\"“](?P<floor>[^'\"”]+)['\"”]",
+     "sum_quantity", {"_agg": True}),
     (r"^on sheet a-?[78]\d*\b.*", "schedule", {"_q": True}),
     # --- ifc_models: per storey ---
     (r"how many (?P<kind>doors|windows|walls|columns|beams|stairs|rooms \(spaces\))"
@@ -219,6 +223,11 @@ def match_template(question: str):
         if base.get("_ifc_model"):
             kw["type"] = IFC_KIND[g["kind"]]
             kw["_whole_model"] = True
+        if base.get("_agg"):
+            kw["type"] = {"rooms (spaces)": "room", "walls": "wall", "slabs": "slab",
+                          "beams": "beam", "columns": "column"}[g["kind"]]
+            kw["field"] = {"floor area": "area", "side area": "area",
+                           "length": "length", "volume": "volume"}[g["what"]]
         if base.get("_q"):
             kw["q"] = question
         if base.get("_apt"):
@@ -389,6 +398,10 @@ def ask(con, drawing: str, question: str) -> dict:
                 "missing": "drawing", "route": "cache", "cost_usd": 0.0}
     if not con.execute("SELECT 1 FROM elements WHERE drawing_id=? LIMIT 1",
                        (row[0],)).fetchone():
+        if PLAN_RE.match(drawing):
+            return {"status": "refused",
+                    "reason": "this plan was rendered from an IFC model that is not uploaded",
+                    "missing": "source_model", "route": "cache", "cost_usd": 0.0}
         return {"status": "refused",
                 "reason": "this format is not parsed yet",
                 "missing": "parser", "route": "cache", "cost_usd": 0.0}

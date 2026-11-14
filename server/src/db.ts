@@ -53,7 +53,7 @@ export const queryElements = db.prepare(
       AND (@subtype  IS NULL OR e.subtype = @subtype)
       AND (@floor    IS NULL OR e.floor_id = (
             SELECT id FROM floors
-             WHERE drawing_id = @drawing_id AND name = @floor))
+             WHERE drawing_id = @drawing_id AND LOWER(name) = LOWER(@floor)))
       AND (@literal  IS NULL OR LOWER(e.label) LIKE '%' || LOWER(@literal) || '%')
       AND e.is_primary = 1`,
 );

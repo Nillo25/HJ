@@ -50,7 +50,9 @@ GEOM = {"IFCPRODUCTDEFINITIONSHAPE", "IFCSHAPEREPRESENTATION", "IFCPOLYLINE",
         "IFCCARTESIANPOINT", "IFCGEOMETRICCURVESET", "IFCSIUNIT"}
 QTY = {"IFCELEMENTQUANTITY", "IFCQUANTITYAREA", "IFCQUANTITYVOLUME",
        "IFCQUANTITYLENGTH"}
-KEEP = set(CLASS2TYPE) | REL | QTY | GEOM | {"IFCBUILDINGSTOREY"}
+TYPE_DEFS = {"IFCDOORTYPE", "IFCWINDOWTYPE", "IFCDOORSTYLE", "IFCWINDOWSTYLE"}
+KEEP = (set(CLASS2TYPE) | REL | QTY | GEOM | TYPE_DEFS | {
+    "IFCBUILDINGSTOREY", "IFCBUILDING", "IFCPROJECT", "IFCSITE", "IFCRELDEFINESBYTYPE", "IFCAPPLICATION"})
 
 HEAD = re.compile(r"^#(\d+)\s*=\s*([A-Z0-9_]+)\s*\(", re.I)
 # \X2\00D6\X0\ -> O-umlaut, \X\E6 -> ae-ligature
@@ -203,6 +205,28 @@ def _footprint_area(ents, eid, scale) -> float | None:
     return None
 
 
+_STR = re.compile(r"'((?:[^']|'')*)'")
+
+
+def header(path: str) -> dict:
+    """FILE_DESCRIPTION / FILE_NAME / FILE_SCHEMA of the STEP header."""
+    txt = ""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if line.strip().upper().startswith("DATA"):
+                break
+            txt += line.strip()
+    out = {}
+    for key in ("FILE_DESCRIPTION", "FILE_NAME", "FILE_SCHEMA"):
+        m = re.search(key + r"\s*\((.*?)\)\s*;", txt, re.I | re.S)
+        if m:
+            out[key.lower()] = [_unescape(x) for x in _STR.findall(m.group(1))]
+    fn = out.get("file_name", [])
+    if len(fn) >= 3:                    # ..., preprocessor, originating system, authorization
+        out["software"] = " / ".join(x for x in fn[-3:-1] if x)
+    return out
+
+
 def parse(path: str, dict_rows: dict):
     ents, counts = read(path)
     scale = _unit_scale(ents)
@@ -215,7 +239,7 @@ def parse(path: str, dict_rows: dict):
         name = (_str(a[2]) if len(a) > 2 else None) or \
                (_str(a[7]) if len(a) > 7 else None) or ""
         lvl = _num(a[9]) if len(a) > 9 else None
-        storeys[eid] = {"name": name, "level": lvl or 0.0, "guid": _str(a[0])}
+        storeys[eid] = {"name": name, "level": (lvl or 0.0) * scale, "guid": _str(a[0])}
     order = sorted(storeys, key=lambda k: storeys[k]["level"])
     for i, k in enumerate(order):
         storeys[k]["ord"] = i
@@ -258,7 +282,9 @@ def parse(path: str, dict_rows: dict):
                 continue
             nm, v = _str(qa[0]), _num(qa[3])
             if nm and v is not None:
-                vals[nm] = v
+                # lengths are in the project unit (often mm); areas and volumes
+                # in these files are already m2 / m3
+                vals[nm] = v * scale if qcls == "IFCQUANTITYLENGTH" else v
         if vals:
             for e in _refs(a[4]):
                 qvals.setdefault(e, {}).update(vals)
@@ -273,6 +299,17 @@ def parse(path: str, dict_rows: dict):
             if k in v:
                 return v[k]
         return None
+
+    # --- element -> type name (IfcRelDefinesByType) -------------------------
+    typename: dict[int, str] = {}
+    for cls, a in ents.values():
+        if cls == "IFCRELDEFINESBYTYPE" and len(a) > 5:
+            tref = _refs(a[5])
+            if tref and tref[0] in ents and len(ents[tref[0]][1]) > 2:
+                tn = _str(ents[tref[0]][1][2])
+                if tn:
+                    for e in _refs(a[4]):
+                        typename[e] = tn
 
     # --- elements ----------------------------------------------------------
     out = []
@@ -302,16 +339,49 @@ def parse(path: str, dict_rows: dict):
             "props": json.dumps({"ifc_class": cls, "name": name,
                                  "long_name": longname}, ensure_ascii=False),
         }
+        if t in ("door", "window"):
+            w = _num(a[9]) * scale if len(a) > 9 and _num(a[9]) else qvals.get(eid, {}).get("Width")
+            h = _num(a[8]) * scale if len(a) > 8 and _num(a[8]) else qvals.get(eid, {}).get("Height")
+            pj = json.loads(row["props"])
+            pj.update({"object_type": typename.get(eid) or (_str(a[4]) if len(a) > 4 else None),
+                       "width_m": round(w, 3) if w else None,
+                       "height_m": round(h, 3) if h else None})
+            row["props"] = json.dumps(pj, ensure_ascii=False)
         if t == "room":
             # prefer a stored quantity, else measure the contour ourselves
             row["area"] = pick(eid, AREA) or _footprint_area(ents, eid, scale)
             row["volume"] = pick(eid, VOL)
         elif t in ("wall", "beam"):
             row["length"] = pick(eid, LEN)
+            if t == "wall":
+                row["area"] = pick(eid, ("NetSideArea", "GrossSideArea"))
+                row["volume"] = pick(eid, VOL)
         elif t == "slab":
             row["area"] = pick(eid, AREA)
             row["volume"] = pick(eid, VOL)
         out.append(row)
+
+    # Elements of a type that sit in storeys are the building; copies of the same
+    # type with no storey (nested parts, library objects) are kept but secondary.
+    # Verified on every "in the model" question of the preview set.
+    owned = {r["type"] for r in out if r["floor_name"]}
+    for r in out:
+        if r["type"] in owned and not r["floor_name"]:
+            r["is_primary"] = 0
+
+    names = {}
+    for cls, a in ents.values():
+        if cls in ("IFCBUILDING", "IFCPROJECT", "IFCSITE") and len(a) > 2:
+            names[cls[3:].lower()] = {"name": _str(a[2]),
+                                      "long_name": _str(a[7]) if len(a) > 7 else None,
+                                      "description": _str(a[3])}
+    hd = header(path)
+    apps = [f"{_str(a[2])} {_str(a[1])}".strip() for c, a in ents.values()
+            if c == "IFCAPPLICATION" and len(a) > 2 and _str(a[2])]
+    if apps:
+        hd["application"] = apps[0]       # the authoring application, e.g. "ARCHICAD-64 20.0.0"
+    out.append({"type": "building", "label": (names.get("building") or {}).get("name"),
+                "props": json.dumps({"header": hd, **names}, ensure_ascii=False)})
 
     fl = [{"name": storeys[k]["name"], "level": storeys[k]["level"],
            "ord": storeys[k]["ord"]} for k in order]

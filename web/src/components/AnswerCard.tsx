@@ -10,6 +10,7 @@ const STATUS = {
 
 const MISSING: Record<string, string> = {
   parser: 'This file format is not parsed yet.',
+  source_model: 'Upload the IFC model this plan was made from, together with the plan.',
   template: 'Add a model key to the server, or rephrase as a supported question.',
   element: 'The data has no matching element.',
   drawing: 'The drawing was not found.',

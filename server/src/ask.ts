@@ -5,7 +5,7 @@
  * только на новый вопрос, и результат тут же кладётся в кэш.
  */
 import { z } from 'zod';
-import { generateObject } from 'ai';
+import { generateObject, generateText } from 'ai';
 import { google } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { execFile } from 'node:child_process';
@@ -33,6 +33,44 @@ function pyTemplate(drawing: string, question: string): Promise<any | null> {
       try { resolve(JSON.parse(out)); } catch { resolve(null); }
     });
   });
+}
+
+/** Facts sheet of an IFC model, computed from the index (no model). */
+function pyFacts(drawing: string): Promise<any | null> {
+  return new Promise((resolve) => {
+    execFile('python3', [
+      path.resolve('../indexer/ifc_facts.py'),
+      '--db', process.env.DB_PATH ?? '../app.db', '--drawing', drawing,
+    ], { timeout: 20000, maxBuffer: 8e6 }, (err, out) => {
+      if (err) return resolve(null);
+      try { resolve(JSON.parse(out)); } catch { resolve(null); }
+    });
+  });
+}
+
+/** Free-form question about a whole model: the model only phrases facts computed in Python. */
+async function report(d: { id: number; row: any }, question: string, t0: number, prior: Usage[], priorCost: number, route: string) {
+  const facts = await pyFacts(d.row.name);
+  if (!facts || !Object.keys(facts).length) {
+    return { status: 'refused', reason: 'no facts could be computed for this model', missing: 'data',
+             route, cost_usd: priorCost, usage: prior, latency_ms: Date.now() - t0 };
+  }
+  const { text, usage } = await generateText({
+    model: MODEL,
+    temperature: 0,
+    system:
+      'You answer a question about one building model using ONLY the JSON facts given. ' +
+      'Copy numbers exactly, never compute new ones, never invent. Answer in the language of the question, ' +
+      'compactly, as plain lines. If the facts do not contain the answer, say what is missing.',
+    prompt: `Facts:\n${JSON.stringify(facts)}\n\nQuestion: ${question}`,
+  });
+  const cost = estimateCost(usage);
+  const used = [...prior, recordUsage(`${PROVIDER}:${MODEL_ID}`, usage?.promptTokens ?? 0, usage?.completionTokens ?? 0, cost)];
+  return {
+    status: 'answered', answer: text.trim(), unit: null, confidence: 1, route,
+    evidence: [], cost_usd: priorCost + cost, usage: used, latency_ms: Date.now() - t0,
+    fn: 'report', args: {},
+  };
 }
 
 /* ------------------------------------------------ схема разбора вопроса */
@@ -65,6 +103,7 @@ const Query = z.discriminatedUnion('fn', [
       .describe('true для «всех пронумерованных внутренних помещений»'),
   }),
   z.object({ fn: z.literal('list_floors') }),
+  z.object({ fn: z.literal('report') }).describe('free-form question about a whole IFC model: software, levels, space breakdown, summary'),
   z.object({
     fn: z.literal('unsupported'),
     reason: z.string().describe('почему вопрос не ложится ни на одну функцию'),
@@ -131,6 +170,15 @@ export async function ask(drawingName: string, question: string) {
     return { ...tpl, route: 'template', usage: [], latency_ms: Date.now() - t0 };
   }
 
+  // whole-model IFC sets are asked free-form: skip the parsing call, one model call total
+  if (d.row.source === 'ifc_bench') {
+    if (!HAS_KEY) {
+      return { status: 'refused', reason: 'free-form model questions need a model key', missing: 'template',
+               route: 'none', usage: [], cost_usd: 0, latency_ms: Date.now() - t0 };
+    }
+    return report(d, question, t0, [], 0, 'llm');
+  }
+
   const { template, slots } = templatize(question);
   let parsed: any = null;
   let route: 'cache' | 'llm' = 'cache';
@@ -184,6 +232,8 @@ export async function ask(drawingName: string, question: string) {
              missing: 'template', route, cost_usd: cost, usage: used,
              latency_ms: Date.now() - t0 };
   }
+
+  if (parsed.fn === 'report') return report(d, question, t0, used, cost, route);
 
   const { fn, ...args } = parsed;
   const impl = (FNS as any)[fn];
