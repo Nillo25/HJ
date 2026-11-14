@@ -841,3 +841,13 @@ def test_room_name_from_schedule_is_shown_by_rules():
     assert g["action"]["ids"] == ["sp2"]                     # не все «…Room»
     t = chat(sc, "how many toilets", use_llm=False)
     assert t["calls"][0]["tool"] == "count"                  # подсчёт унитазов остаётся подсчётом
+
+
+def test_drawing_sheet_number_long_form():
+    """Школа C01: ИИ иногда читает вместо «C01» длинный номер SEN-DFE-XX-00-D-X-0201 — это тоже чертёжный лист;
+    квартиры (номера нет или «3») — нет."""
+    from fp.infer import is_drawing_sheet
+    for s in ("M-101A", "A-2", "C01", "S-100F", "SEN-DFE-XX-00-D-X-0201"):
+        assert is_drawing_sheet(s), s
+    for s in ("", None, "3", "12", "Plan 2", "KITCHEN"):
+        assert not is_drawing_sheet(s), s

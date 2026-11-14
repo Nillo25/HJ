@@ -38,7 +38,7 @@ ARC_MIN_PPM = 33.0  # двери по дугам — только если дв�
 WALL_ROOMS_MIN_PPM = 20.0  # помещения по стенам (рамки от ИИ) — только если комната 3 м на листе ≥ 60 px
 
 # менять при правках разбора, влияющих на сцену: повторная загрузка того же файла тогда разберёт его заново
-PIPELINE_VERSION = "2026-11-14.envelope6+sheet-tiles-door-verify+frame+mep-walls+fullres-pipes+label-room-types"
+PIPELINE_VERSION = "2026-11-14.envelope6+sheet-tiles-door-verify+frame+mep-walls+fullres-pipes+label-room-types+long-sheet-no"
 
 THRESHOLDS = json.loads((Path(__file__).parent / "thresholds.json").read_text())
 
@@ -186,6 +186,13 @@ def save_display(img: np.ndarray, out: Path) -> None:
     cv2.imwrite(str(out / "image_hd.png"), img)
 
 
+def is_drawing_sheet(num) -> bool:
+    """Номер чертёжного листа: M-101A, A-2, C01 — или длинный номер по стандарту (SEN-DFE-XX-00-D-X-0201),
+    который ИИ иногда читает вместо короткого: тогда смотрим его хвост. Квартиры: номера нет или «3» — нет."""
+    s = str(num or "").strip().upper()
+    return bool(re.match(r"^[A-Z]{1,3}[-.]?\d", s) or re.search(r"[-_ ./][A-Z]{1,3}[-.]?\d{1,4}[A-Z]?$", s))
+
+
 def drop_outside_drawing(sc: Scene, bbox, pad: float = 0.02, max_frac: float | None = 0.3) -> int:
     """Убрать детекции вне основного чертежа: штамп, легенда, таблицы, ключевой план. Модель обучена на квартирах
     и на чертёжных листах принимает графы штампа за комнаты. bbox — рамка чертежа от VLM (fp.sheet)."""
@@ -289,7 +296,7 @@ def analyze_sheet(img: np.ndarray, sc: Scene, full: np.ndarray | None = None, f:
     # чертёжный лист без подписей помещений (трубопроводы, конструкции): помещения по стенам, рамки от VLM
     # на мелком масштабе (общежитие A-2, 9.9 px/м: комната ~30 px) рамки ИИ неточны, и он объединяет
     # повторяющиеся комнаты в одну рамку на крыло — помещения по стенам только от WALL_ROOMS_MIN_PPM
-    drawing_sheet = bool(re.match(r"^[A-Z]{1,3}[-.]?\d", str(tb.get("sheet_number") or "")))
+    drawing_sheet = is_drawing_sheet(tb.get("sheet_number"))
     # чертёжный лист: мелкие объекты (двери, окна, стены, сантехника) — YOLO по тайлам в масштабе обучения
     # (fp/tiles.py; школа 1:200: стены 3 -> 70 участков, двери-кандидаты 10/32 -> 32/32 на eval/doors_gt.json)
     full_img, ff = (full, f) if full is not None and f else (img, 1.0)

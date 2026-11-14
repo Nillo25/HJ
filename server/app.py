@@ -248,6 +248,11 @@ def auto_scale(plan_id: str):
     import cv2
     from fp.infer import analyze_sheet
     d = _dir(plan_id)
-    sc = analyze_sheet(cv2.imread(str(d / "image.png")), Scene.load(d))
+    img = cv2.imread(str(d / "image.png"))
+    # крупный лист: тайлы, проверка дверей и трубы — по копии высокого разрешения (та же обрезка), иначе
+    # повторный анализ по 2048 px терял найденное при загрузке (M-101A 10200 px: труб 88 -> 9)
+    hd = cv2.imread(str(d / "image_hd.png")) if (d / "image_hd.png").exists() else None
+    f = img.shape[1] / hd.shape[1] if hd is not None else None
+    sc = analyze_sheet(img, Scene.load(d), full=hd, f=f)
     sc.save(d)
     return sc.meta.get("scale", {})
