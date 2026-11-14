@@ -161,6 +161,11 @@ const Query = z.discriminatedUnion('fn', [
     fn: z.literal('apartment_area'),
     label: z.string().describe('the apartment letter as written on the plan: A, B, C...'),
   }),
+  z.object({
+    fn: z.literal('floor_area'),
+    floor: z.string().optional(),
+  }).describe('TOTAL area of the whole floor / storey / plan, with or without parts (apartments, kinds of room). ' +
+              'Use it for "общая площадь этажа", "total area of the floor", "how big is the plan". Not for one room or one kind of room.'),
   z.object({ fn: z.literal('list_floors') }),
   z.object({ fn: z.literal('report') }).describe('free-form question about a whole IFC model: software, levels, space breakdown, summary'),
   z.object({
@@ -268,6 +273,7 @@ export async function ask(d: Session, question: string) {
         'Если вопрос просит сумму, разность или сочетание РАЗНЫХ типов объектов («стены и колонны вместе»), ' +
         'одной функцией его не посчитать: выбирай unsupported, не отвечай только на часть. ' +
         'Название помещения копируй из вопроса целиком, вместе с номером в скобках. ' +
+        'Общая площадь всего этажа/плана без указания типа помещения ("общая площадь этажа", "total area of the floor") — это floor_area, не sum_quantity. ' +
         (d.meta.kind === 'ifc'
           ? 'Для IFC-модели описательные вопросы (ПО и версия, перечень, группировка, распределение, ' +
             'самое большое/узкое/высокое, сводка по уровням) — это report, а не unsupported. '

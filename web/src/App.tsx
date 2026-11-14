@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import examples from './examples.json';
-import { ask, getDrawing, type Answer, type Drawing } from './lib/api';
+import { ask, getDrawing, type Answer, type Drawing, type Part } from './lib/api';
 import { AccuracyPanel } from './components/AccuracyPanel';
 import { AnswerCard } from './components/AnswerCard';
 import { EvidenceTable } from './components/EvidenceTable';
@@ -26,6 +26,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [usageKey, setUsageKey] = useState(0);
   const [ifcTab, setIfcTab] = useState<'3d' | 'plan'>('3d');
+  const [pick, setPick] = useState<Part | null>(null);       // a part of an area breakdown shown on the plan
 
   // after a reload, come back to the file that was open (uploads live on the server for a day)
   useEffect(() => {
@@ -56,6 +57,7 @@ export default function App() {
     setAsked(q);
     setQuestion(q);
     setAnswer(null);
+    setPick(null);
     setLoading(true);
     try {
       setAnswer(await ask(current.id, q));
@@ -69,7 +71,7 @@ export default function App() {
   const onSubmit = (e: FormEvent) => { e.preventDefault(); run(question); };
 
   const hasPlan = current && current.kind !== 'png';
-  const evidence = answer?.evidence ?? [];
+  const evidence = pick?.evidence ?? answer?.evidence ?? [];
 
   return (
     <div className="mx-auto max-w-[1500px] px-4 py-5">
@@ -108,7 +110,7 @@ export default function App() {
             </CardBody>
           </Card>
 
-          <AnswerCard question={asked} answer={answer} loading={loading}
+          <AnswerCard question={asked} answer={answer} loading={loading} pick={pick} onPick={setPick}
             onChoose={alt => setAnswer(prev => prev && { ...prev, status: (alt.confidence ?? 1) < 1 ? 'estimated' : 'answered', answer: alt.answer, unit: alt.unit, evidence: alt.evidence, alternatives: undefined, confidence: alt.confidence ?? 1 })} />
 
           {answer && answer.status !== 'refused' && answer.status !== 'needs_clarification' && <EvidenceTable answer={answer} />}

@@ -1,4 +1,4 @@
-import { unitLabel, type Alternative, type Answer } from '../lib/api';
+import { unitLabel, type Alternative, type Answer, type Part } from '../lib/api';
 import { Badge, Card, CardBody, CardHeader, CardTitle } from './ui';
 
 const STATUS = {
@@ -23,7 +23,7 @@ function describe(a: Answer) {
   return `${a.fn}(${args.join(', ')})`;
 }
 
-export function AnswerCard({ question, answer, loading, onChoose }: { question: string | null; answer: Answer | null; loading: boolean; onChoose?: (alt: Alternative) => void }) {
+export function AnswerCard({ question, answer, loading, onChoose, pick, onPick }: { question: string | null; answer: Answer | null; loading: boolean; onChoose?: (alt: Alternative) => void; pick?: Part | null; onPick?: (p: Part | null) => void }) {
   if (!question) return null;
   const s = answer ? STATUS[answer.status] ?? STATUS.refused : null;
   const tokens = (answer?.usage ?? []).reduce((n, u) => n + u.input_tokens + u.output_tokens, 0);
@@ -78,6 +78,8 @@ export function AnswerCard({ question, answer, loading, onChoose }: { question: 
             <p className="mt-2 text-xs text-amber-800">No number is shown on purpose: a wrong zero would look like an answer.</p>
           </div>
         )}
+
+        {answer?.breakdown && answer.breakdown.length > 0 && <Parts answer={answer} pick={pick ?? null} onPick={onPick} />}
 
         {answer && !loading && <TokenStrip answer={answer} />}
 
@@ -137,6 +139,34 @@ function TokenStrip({ answer }: { answer: Answer }) {
           <span className="text-slate-500"> · {used.map(u => u.model).filter((m, i, a) => a.indexOf(m) === i).join(', ')}</span>
         </>
       )}
+    </div>
+  );
+}
+
+/** The area cut into parts: each row is drawn on the plan when picked, so the sum can be checked by eye. */
+function Parts({ answer, pick, onPick }: { answer: Answer; pick: Part | null; onPick?: (p: Part | null) => void }) {
+  const groups = [...new Set((answer.breakdown ?? []).map(p => p.group))];
+  return (
+    <div className="space-y-2">
+      {answer.note && <p className="text-xs text-slate-500">{answer.note}</p>}
+      <div className="max-h-72 overflow-auto rounded-md border border-slate-200">
+        {groups.map(g => (
+          <div key={g}>
+            <div className="sticky top-0 bg-slate-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{g}</div>
+            {(answer.breakdown ?? []).filter(p => p.group === g).map(p => {
+              const on = pick?.label === p.label && pick?.group === p.group;
+              return (
+                <button key={g + p.label} onClick={() => onPick?.(on ? null : p)} aria-pressed={on}
+                  className={`flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-sm ${on ? 'bg-rose-50 text-rose-900' : 'hover:bg-slate-50'}`}>
+                  <span className="truncate" title={p.label}>{p.label} <span className="text-xs text-slate-400">· {p.count} room{p.count === 1 ? '' : 's'}</span></span>
+                  <span className="shrink-0 tabular-nums font-medium">{p.area.toLocaleString('en-US')} m²</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+      {pick && <p className="text-xs text-rose-700">Showing “{pick.label}” on the plan. Click it again to show the whole answer.</p>}
     </div>
   );
 }

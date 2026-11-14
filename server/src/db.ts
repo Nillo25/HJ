@@ -142,7 +142,7 @@ const cacheDb = new Database(process.env.CACHE_DB ?? 'cache.db');
 cacheDb.pragma('journal_mode = WAL');
 // version 2: entries are templates with {i} slots. Version 1 stored constants of the first question
 // that was asked and answered every similar question with them: those rows must not be reused.
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;      // 3: floor_area exists, earlier parses of "total area of the floor" were sum_quantity
 if ((cacheDb.pragma('user_version', { simple: true }) as number) !== CACHE_VERSION) {
   cacheDb.exec('DROP TABLE IF EXISTS question_cache');
   cacheDb.pragma(`user_version = ${CACHE_VERSION}`);

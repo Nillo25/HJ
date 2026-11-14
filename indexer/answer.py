@@ -230,6 +230,8 @@ T = [
     (r"how many rooms labelled '(?P<lit>.+)' are there", "count_labelled", {}),
     (r"how many rooms labelled \"(?P<lit>.+)\" are there", "count_labelled", {}),
     # --- areas ---
+    (r"^(what is )?the (total|overall|whole|gross|net)( net)?( floor)? area of (the|this|that) (whole )?(floor|plan|storey|story|level)\b",
+     "floor_area", {}),
     (r"total net floor area .* all numbered indoor rooms",
      "sum_quantity", {"type": "room", "field": "area", "only_numbered": True}),
     (r"net floor area of apartment (?P<apt>[A-Z])\b",
@@ -388,7 +390,85 @@ def schedule(con, drawing, q):
 
 # ------------------------------------------------------------------ facade
 
-FNS = {"count_objects": count_objects, "room_area": room_area,
+def _pip(pt, poly):
+    x, y = pt
+    c = False
+    n = len(poly)
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        if (y1 > y) != (y2 > y) and x < (x2 - x1) * (y - y1) / (y2 - y1 + 1e-12) + x1:
+            c = not c
+    return c
+
+
+def _split_rooms(con, drawing, floor=None):
+    """-> (indoor rooms, outdoor rooms). A DXF plan marks numbered indoor rooms; for a model every space that is
+    not a balcony counts as indoor."""
+    rooms = _rows(con, drawing, type="room", floor=floor)
+    pr = lambda r: json.loads(r["props"] or "{}")
+    marked = any("numbered_indoor" in pr(r) for r in rooms)
+    outdoor = [r for r in rooms if pr(r).get("outdoor") or r["subtype"] == "balcony"]
+    out_ids = {r["id"] for r in outdoor}
+    if marked:
+        indoor = [r for r in rooms if pr(r).get("numbered_indoor") and r["id"] not in out_ids]
+    else:
+        indoor = [r for r in rooms if r["id"] not in out_ids and (r["area"] or 0) > 0]
+    return indoor, outdoor
+
+
+def floor_area(con, drawing, floor=None):
+    """Net area of the floor: the numbered indoor rooms (balconies, shafts and unlabelled slivers are not in it)."""
+    indoor, _ = _split_rooms(con, drawing, floor)
+    if not indoor:
+        return None, []
+    return sum(r["area"] or 0 for r in indoor), indoor
+
+
+def floor_area_parts(con, drawing, floor=None):
+    """The same area cut into parts, every part with the rows it was summed from (they are drawn on the plan)."""
+    indoor, outdoor = _split_rooms(con, drawing, floor)
+    parts = []
+
+    def add(group, label, rows, area=None):
+        if rows:
+            parts.append({"group": group, "label": label, "count": len(rows),
+                          "area": round(area if area is not None else sum(r["area"] or 0 for r in rows), 2),
+                          "rows": rows})
+
+    # apartments (DXF plans): the flat is the sum of its rooms; what lies in no flat is common area
+    apts = [a for a in _rows(con, drawing, type="apartment", floor=floor) if a["polygon"]]
+    in_flat = set()
+    for a in sorted(apts, key=lambda a: a["label"] or ""):
+        poly = json.loads(a["polygon"])
+        mine = [r for r in indoor if r["polygon"] and _pip(((lambda p: (sum(q[0] for q in p) / len(p), sum(q[1] for q in p) / len(p)))(json.loads(r["polygon"]))), poly)]
+        in_flat |= {r["id"] for r in mine}
+        add("By apartment", f"Apartment {a['label']}", mine)
+    common = [r for r in indoor if r["id"] not in in_flat]
+    if apts:
+        add("By apartment", "Outside the apartments (stairs, corridors, shared rooms)", common)
+
+    # by kind of room, from the label dictionary
+    kinds = {}
+    for r in indoor:
+        kinds.setdefault(r["subtype"] or "other / unnamed", []).append(r)
+    for k, rows in sorted(kinds.items(), key=lambda kv: -sum(r["area"] or 0 for r in kv[1])):
+        add("By kind of room", k, rows)
+
+    # by storey (models)
+    fl = {}
+    for r in indoor:
+        fl.setdefault(r["floor_id"], []).append(r)
+    if len(fl) > 1:
+        names = {f["id"]: f["name"] for f in con.execute("SELECT id, name FROM floors WHERE drawing_id=(SELECT id FROM drawings WHERE name=?)", (drawing,))}
+        for fid, rows in sorted(fl.items(), key=lambda kv: str(names.get(kv[0]))):
+            add("By storey", names.get(fid) or "no storey", rows)
+
+    add("Not counted in the total", "Balconies, loggias, terraces", outdoor)
+    return parts
+
+
+FNS = {"count_objects": count_objects, "room_area": room_area, "floor_area": floor_area,
        "apartment_area": apartment_area, "count_labelled": count_labelled,
        "sum_quantity": sum_quantity, "list_floors": list_floors,
        "schedule": schedule}
@@ -478,6 +558,8 @@ def from_model(fn: str, a: dict):
         return "sum_quantity", kw
     if fn == "apartment_area":
         return "apartment_area", {"label": a.get("label", "")}
+    if fn == "floor_area":
+        return "floor_area", ({"floor": a["floor"]} if a.get("floor") else {})
     if fn == "list_floors":
         return "list_floors", {}
     return None
@@ -518,7 +600,7 @@ def execute(con, drawing: str, fn: str, kw: dict, plan_floor=None) -> dict:
         return {"status": "answered", "answer": value, "unit": unit, "confidence": 1.0,
                 "route": "cache", "evidence": evidence_of(rows, con), "cost_usd": 0.0,
                 "fn": fn, "args": {}}
-    unit = ("m2" if fn in ("room_area", "apartment_area")
+    unit = ("m2" if fn in ("room_area", "apartment_area", "floor_area")
             or kw.get("field") == "area" else "count")
     conf = min([r["confidence"] for r in rows], default=1.0) if rows else 1.0
     from_dxf = bool(rows) and not any("source_ref" in r.keys() and len(str(r["source_ref"] or "")) == 22 for r in rows)   # IFC GlobalIds are 22 chars
@@ -539,8 +621,14 @@ def execute(con, drawing: str, fn: str, kw: dict, plan_floor=None) -> dict:
                 "question": ("'Toilets' can mean the rooms or the WC bowls drawn in them. " if len(alts) > 1 else "")
                             + f"This DXF stores every fixture on one layer without a type, so the {kw['subtype']} symbols are guessed from outline sizes. Which do you want?",
                 "alternatives": alts}
-    return {"status": "answered" if conf >= 1.0 else "estimated",
-            "answer": round(value, 2) if unit == "m2" else value,
-            "unit": unit, "confidence": conf, "route": "cache",
-            "evidence": evidence_of(rows, con), "cost_usd": 0.0,
-            "fn": fn, "args": kw}
+    res = {"status": "answered" if conf >= 1.0 else "estimated",
+           "answer": round(value, 2) if unit == "m2" else value,
+           "unit": unit, "confidence": conf, "route": "cache",
+           "evidence": evidence_of(rows, con), "cost_usd": 0.0,
+           "fn": fn, "args": kw}
+    if fn == "floor_area":
+        res["breakdown"] = [{"group": p["group"], "label": p["label"], "count": p["count"], "area": p["area"],
+                             "evidence": evidence_of(p["rows"], con)} for p in floor_area_parts(con, drawing, kw.get("floor"))]
+        res["note"] = ("Net area of the numbered indoor rooms. Balconies, loggias, shafts and unlabelled slivers are not in it; "
+                       "pick a part to see it on the plan.")
+    return res

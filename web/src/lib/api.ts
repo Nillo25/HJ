@@ -29,11 +29,14 @@ export type Evidence = {
 
 export type UsageItem = { model: string; input_tokens: number; output_tokens: number; cost_usd: number };
 
+export type Part = { group: string; label: string; count: number; area: number; evidence: Evidence[] };
 export type Alternative = { label: string; answer: number; unit?: string; confidence?: number; evidence: Evidence[] };
 
 export type Answer = {
   question?: string;
   alternatives?: Alternative[];
+  breakdown?: Part[];
+  note?: string;
   status: 'answered' | 'estimated' | 'refused' | 'needs_clarification';
   answer?: number | string;
   unit?: string;
