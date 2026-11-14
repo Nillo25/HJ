@@ -9,7 +9,7 @@ import json
 import re
 
 from pdfminer.high_level import extract_pages
-from pdfminer.layout import LTTextLine
+from pdfminer.layout import LTCurve, LTFigure, LTImage, LTLine, LTRect, LTTextLine
 
 DOOR_NO = re.compile(r"^\d{3}\.[A-Z]\d?$")
 AREA_SF = re.compile(r"^([\d,]+)\s*SF$")
@@ -34,7 +34,8 @@ MAX_PAGES = 30          # a drawing set can have hundreds of pages: the first on
 MAX_SPANS_PER_PAGE = 6000
 
 
-def _lines(path):
+def _lines(path, stats=None):
+    """(page number, text lines) per page. stats, if given, is filled with what the pages are made of."""
     for pno, pg in enumerate(extract_pages(path, maxpages=MAX_PAGES), 1):
         out = []
 
@@ -43,10 +44,19 @@ def _lines(path):
                 t = o.get_text().strip()
                 if t:
                     out.append((o.x0, o.y0, o.x1, o.y1, t))
-            elif hasattr(o, "__iter__"):
-                for c in o:
-                    walk(c)
+            else:
+                if stats is not None:
+                    if isinstance(o, (LTLine, LTRect, LTCurve)):
+                        stats["vector_shapes"] += 1
+                    elif isinstance(o, LTImage):
+                        stats["images"] += 1
+                if hasattr(o, "__iter__"):
+                    for c in o:
+                        walk(c)
         walk(pg)
+        if stats is not None:
+            stats["pages_read"] = pno
+            stats["text_lines"] += len(out)
         yield pno, out
 
 
@@ -79,9 +89,14 @@ def _feet(s):
     return int(ft) * 12 + int(inch) + (int(n) / int(d) if n else 0)
 
 
+# A PDF is "vector" when it carries text or drawn shapes. A scan is one picture: no text, a handful of border lines.
+MIN_VECTOR_SHAPES = 20
+
+
 def parse(path: str, dict_rows: dict):
     out = []
-    for pno, lines in _lines(path):
+    stats = {"vector_shapes": 0, "images": 0, "text_lines": 0, "pages_read": 0}
+    for pno, lines in _lines(path, stats):
         # every line of text with its position: this is what free-form questions are answered from
         for x0, y0, x1, y1, t in lines[:MAX_SPANS_PER_PAGE]:
             out.append({"type": "text_span", "label": t, "page": pno,
@@ -131,4 +146,6 @@ def parse(path: str, dict_rows: dict):
                     "source_ref": f"room:{row[1][4]}",
                     "props": json.dumps({**f, "unit": "SF"}, ensure_ascii=False),
                 })
+    stats["vector"] = stats["text_lines"] > 0 or stats["vector_shapes"] >= MIN_VECTOR_SHAPES
+    out.append({"type": "pdf_info", "props": json.dumps(stats)})
     return out

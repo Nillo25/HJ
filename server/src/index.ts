@@ -31,12 +31,21 @@ app.use('/api/*', cors());
 
 /* ------------------------------------------------------------ drawings */
 
+function pdfIsVector(s: Session): boolean {
+  try {
+    const note = (filesOf(s.db, s.drawing.id)[0]?.note as string | undefined) ?? '';
+    return JSON.parse(note).vector !== false;
+  } catch { return true; }
+}
+
 function card(s: Session) {
   return {
     id: s.uid, name: s.meta.fileName.replace(/\.[^.]+$/, ''), kind: s.meta.kind,
     source: s.drawing.source, status: s.drawing.status, capabilities: s.drawing.capabilities,
     elements: elementCount(s.db, s.drawing.id), created_at: s.meta.createdAt,
     text_lines: (s.db.prepare('SELECT COUNT(*) n FROM text_spans').get() as any).n as number,
+    // a PDF is vector data when it has text or drawn shapes; only a picture-only PDF (a scan) is treated as an image
+    vector: s.meta.kind === 'pdf' ? pdfIsVector(s) : undefined,
   };
 }
 

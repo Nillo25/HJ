@@ -62,8 +62,8 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
       const ms = Date.now() - t0;
       setParsedMs(ms);
       const d = job.drawings[0];
-      // no text at all = not vector data: draw page 1 in the browser and treat it as a PNG
-      if (d?.kind === 'pdf' && (d.text_lines ?? 0) === 0 && !from) {
+      // a picture-only PDF (no text, no drawn shapes) is not vector data: draw page 1 in the browser and treat it as a PNG
+      if (d?.kind === 'pdf' && d.vector === false && !from) {
         setPhase({ name: 'converting', file: file.name });
         try {
           const r = await pdfFirstPageToPng(file);
@@ -71,7 +71,7 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
           return;
         } catch (e) {
           setConverted(null);
-          setPhase({ name: 'error', message: `This PDF has no text layer and could not be converted to an image: ${e instanceof Error ? e.message : e}` });
+          setPhase({ name: 'error', message: `This PDF is a picture and could not be converted to an image: ${e instanceof Error ? e.message : e}` });
           return;
         }
       }
@@ -126,7 +126,7 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
         )}
         {phase.name === 'converting' && (
           <p className="text-sm" aria-live="polite">
-            <b>{phase.file}</b> has no text layer (a scan or a picture): converting page 1 to a PNG in your browser…
+            <b>{phase.file}</b> is a picture without vector data (a scan): converting page 1 to a PNG in your browser…
           </p>
         )}
         {phase.name === 'parsing' && (
@@ -154,7 +154,7 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
             </p>
             {converted && (
               <p className="text-xs text-amber-800">
-                Converted from <b>{converted.from}</b>, page 1 of {converted.pages}: the PDF has no text layer, so it is handled as an image.
+                Converted from <b>{converted.from}</b>, page 1 of {converted.pages}: the PDF holds only a picture (no text, no vector drawing), so it is handled as an image.
               </p>
             )}
           </div>

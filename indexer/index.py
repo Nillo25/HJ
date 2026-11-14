@@ -143,6 +143,9 @@ def main():
                 floor_ids[fl["name"]] = fl_id
 
             for r in rows:
+                if r["type"] == "pdf_info":              # what the PDF is made of: kept on the file, not as an object
+                    con.execute("UPDATE files SET note=? WHERE id=?", (r["props"], fid))
+                    continue
                 if r["type"] == "text_span":
                     con.execute(
                         "INSERT INTO text_spans(file_id, page, text, bbox) VALUES (?,?,?,?)",
