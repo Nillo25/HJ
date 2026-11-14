@@ -68,7 +68,8 @@ export function getSession(uid: string): Session | null {
   if (hit) return hit;
   const meta = readMeta(uid);
   const dbPath = path.join(UPLOADS, uid, 'index.db');
-  if (!meta?.ready || !existsSync(dbPath)) return null;
+  // an index built by an older parser or dictionary is stale: it must not be opened, the file has to be parsed again
+  if (!meta?.ready || meta.indexVersion !== INDEX_VERSION || !existsSync(dbPath)) return null;
   const db = new Database(dbPath, { fileMustExist: true });
   db.pragma('journal_mode = WAL');
   const d = db.prepare('SELECT * FROM drawings ORDER BY id LIMIT 1').get() as any;
