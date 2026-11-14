@@ -72,7 +72,7 @@ not a wrong answer.
 | Source | Result (2026-11-14) |
 |---|---|
 | swiss_dwellings (DXF) | 89% correct (area 87%, count 91%), about 10% wrong |
-| ifc_models | about 54% answered, 6.4% wrong, rest refused |
+| ifc_models | 95% answered, 0 wrong, 5% refused |
 | opening_design, sheet A-801 | 21 correct, 0 wrong; other sheets refused |
 | cubicasa5k, ifc_bench | not parsed, all refused |
 

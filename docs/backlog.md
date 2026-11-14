@@ -21,13 +21,16 @@ deduplication). Order is by value for the demo.
    hypothesis that most plans print window and door codes ("12x15",
    "OP 10x21") with OCR first, then measure a vision model on about 20 plans.
    Currently with another person.
-6. **ifc_bench**, 249 text questions. The data is already in the database; a
-   model phrases the report.
+6. **ifc_bench**, 249 text questions. Done in code: `indexer/ifc_facts.py` builds
+   a facts sheet, the server sends it to one model call (`report` in `ask.ts`).
+   Not yet measured with a real model; compare answers with the expected text
+   by hand (the harness does not score text). Models without space areas
+   (e.g. duplex_arc) give `area_m2: 0`: treat as unknown.
 7. **swiss_dwellings leftovers**: toilets, washbasins and bathtubs off by 1 to
    2 (measure thresholds with `group.histogram()`); area by literal label
    undercounts ("Zimmer", "Stanza"); some apartments counted twice.
-8. **ifc_models**: length and volume questions (22) are refused; re-measure
-   stair counts after the IFCSTAIR-only change.
+8. **ifc_models**: 95% answered, 0 wrong, 11 refused (7 counts, 2 volume,
+   1 length, 1 area). Look at the 11 with `eval.py --show 11`.
 9. **opening_design**: A700 schedules (20 questions, 657 door entries), A-701
    symbols (3), and one A-801 row question ("four doors of type B2").
 
@@ -44,7 +47,7 @@ deduplication). Order is by value for the demo.
 
 ## Unexplained
 
-- `resbim-388_model.ifc` yields no elements in either the indexer or web-ifc.
+- `resbim-388_model.ifc` is a 2.5 KB stub, not a parser bug. The FZK-Haus model is absent from the dataset (answered with a `source_model`-style refusal).
 - The 71 MB IFC was only opened in Node, not in a browser.
 
 ## Questions for the organisers
