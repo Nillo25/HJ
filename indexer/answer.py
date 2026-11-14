@@ -525,11 +525,20 @@ def execute(con, drawing: str, fn: str, kw: dict, plan_floor=None) -> dict:
     if fn == "count_objects" and kw.get("type") == "fixture" and kw.get("subtype") and from_dxf:
         # Fixture kinds in a DXF are guessed from the outline size (8 of 34 counts matched the key on the preview set).
         # A number that is mostly wrong is worse than none: the estimate is shown only when the user asks for it.
+        alts = []
+        if kw["subtype"] == "toilet":
+            # "toilets" may mean the rooms: the label dictionary knows Bagno, Bad, Salle de bain, WC ...
+            wet = [r for r in _rows(con, drawing, type="room", floor=kw.get("floor")) if r["subtype"] in ("bathroom", "wc")]
+            if wet:
+                names = ", ".join(sorted({(r["label"] or "").strip() for r in wet if r["label"]})[:4])
+                alts.append({"label": f"Rooms labelled as bathroom or WC ({names})", "answer": len(wet), "unit": "count",
+                             "confidence": 1.0, "evidence": evidence_of(wet, con)})
+        alts.append({"label": f"WC bowls drawn on the plan, guessed from symbol sizes ({round(conf * 100)}% confidence, usually off)",
+                     "answer": value, "unit": "count", "confidence": conf, "evidence": evidence_of(rows, con)})
         return {"status": "needs_clarification", "route": "cache", "cost_usd": 0.0, "fn": fn, "args": kw, "unit": "count",
-                "question": f"This DXF stores all fixtures on one layer without a type; the {kw['subtype']} count is guessed "
-                            "from outline sizes and is usually off. Show the estimate anyway?",
-                "alternatives": [{"label": f"Show the estimate ({round(conf * 100)}% confidence)", "answer": value, "unit": "count",
-                                  "confidence": conf, "evidence": evidence_of(rows, con)}]}
+                "question": ("'Toilets' can mean the rooms or the WC bowls drawn in them. " if len(alts) > 1 else "")
+                            + f"This DXF stores every fixture on one layer without a type, so the {kw['subtype']} symbols are guessed from outline sizes. Which do you want?",
+                "alternatives": alts}
     return {"status": "answered" if conf >= 1.0 else "estimated",
             "answer": round(value, 2) if unit == "m2" else value,
             "unit": unit, "confidence": conf, "route": "cache",
