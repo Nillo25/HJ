@@ -4,8 +4,7 @@ import os
 import re
 import unicodedata
 
-# Hand-written seed. Anything missing goes to unknown_labels.txt and is
-# resolved in one batch LLM call (resolve_labels.py).
+# Hand-written seed (exact labels). Everything else: dict/<lang>.json, then the word-root RULES below.
 SEED = {
     # Finnish (cubicasa5k)
     "mh": "bedroom", "makuuhuone": "bedroom",
@@ -155,7 +154,7 @@ def lookup(label: str) -> dict | None:
 
 
 def subtype_for(label: str, dict_rows: dict | None = None) -> str | None:
-    """Semantic type for a label. None means unknown -> unknown_labels.
+    """Semantic type for a label. None means the label is not recognised.
 
     Exact dictionary first (the hand-written seed and anything resolved in a batch), then the word roots above.
     """

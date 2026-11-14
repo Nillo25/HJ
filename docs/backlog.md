@@ -27,7 +27,7 @@ deduplication). Order is by value for the demo.
    by hand (the harness does not score text). Models without space areas
    (e.g. duplex_arc) give `area_m2: 0`: treat as unknown.
 7. **swiss_dwellings leftovers**: toilets, washbasins and bathtubs off by 1 to
-   2 (measure thresholds with `group.histogram()`); area by literal label
+   2 (size bands are tuned by hand; a fit to the key is not possible from sizes alone); area by literal label
    undercounts ("Zimmer", "Stanza"); some apartments counted twice.
 8. **ifc_models**: 95% answered, 0 wrong, 11 refused (7 counts, 2 volume,
    1 length, 1 area). Look at the 11 with `eval.py --show 11`.

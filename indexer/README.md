@@ -17,7 +17,7 @@ HTTP. Results: right / wrong / refused per source and type; language-deduplicate
 | `schema.sql` | tables from `docs/contract.md` |
 | `index.py` | walks a dataset or an upload folder `<root>/data/<source>/<files>`, groups files by stem, parses, writes |
 | `parse_dxf.py` | swiss_dwellings DXF: rooms, apartments, windows, doors, walls, fixtures |
-| `group.py` | clustering of DXF primitives, fixture classification, size histograms |
+| `group.py` | clustering of DXF primitives, fixture classification (size bands) |
 | `parse_ifc.py` | STEP reader, storeys, elements, quantities, building row with header and application |
 | `parse_pdf.py` | vector PDF schedules (door schedule, finish room schedule) via pdfminer |
 | `labels.py` | room label normalisation and seed dictionary |

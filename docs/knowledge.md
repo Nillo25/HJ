@@ -108,11 +108,11 @@ disagrees with the code, the code wins; fix this file.
 - Fixtures (all on one layer): `group.py` clusters primitives and classifies by bounding-box size
   plus the room it sits in (toilet vs washbasin is decided by the room; bands are deliberately
   wide, ambiguous goes to "other"). Thresholds are tuned on European plans. Toilets, washbasins,
-  bathtubs are still off by 1-2 on some files: measure thresholds with `group.histogram()`.
+  bathtubs are still off by 1-2 on some files: the size bands were tuned by hand (a threshold search reached 21 of 34 counts: size alone cannot tell fixtures apart).
 - Known leftovers: area by literal label undercounts ("Zimmer", "Stanza"); some apartments counted
   twice; 73 wrong of 753 deduped questions (9.7%), mostly these.
 - Room label dictionary: `labels.py` (Finnish, German, French, Italian, Estonian, English seeds;
-  `VH` = storage, not bedroom; `S/SAUNA` = sauna). Unknown labels go to `unknown_labels.txt`
+  `VH` = storage, not bedroom; `S/SAUNA` = sauna). Unknown labels fall through to the word-root rules; the per-language dictionaries are in `indexer/dict/`
   (git-ignored) for a batch resolution that is not built.
 
 ### IFC (ifc_models, ifc_bench)
@@ -263,8 +263,7 @@ language of each question is picked at random. `eval.py` (direct calls, no serve
 - DXF: `render_dxf.py` draws the drawing itself (LINE, LWPOLYLINE/POLYLINE with arcs, ARC, CIRCLE, ELLIPSE, SPLINE, SOLID, HATCH,
   TEXT/MTEXT, INSERT of blocks, entity and layer colours; the eight swiss layers have a fixed style) as `sheet.svg` in metres with Y negated; the plan endpoint returns our shapes in the same space, and only the found
   objects are drawn over the picture. The first 10/20 pair of a HATCH is its elevation point, not a vertex.
-- PDF: `render_pdf.py` draws lines, rectangles, curves and text of page 1 as SVG (A-801: 0.8 s, 391 KB);
-  schedule row bboxes are in PDF space, Y up.
+- PDF: schedule row boxes are in PDF space, Y up (pdfminer orientation); the page itself is drawn by pdf.js.
 
 ## 9. Local files that are not in git
 
