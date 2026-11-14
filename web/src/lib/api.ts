@@ -46,6 +46,7 @@ export type Answer = {
 
 export type Plan = {
   viewBox: [number, number, number, number];
+  background?: string;
   layers: Record<string, { id: number; label?: string | null; polygon?: number[][]; bbox?: number[] }[]>;
 };
 

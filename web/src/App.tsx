@@ -32,7 +32,7 @@ export default function App() {
     try { setCurrent(await getDrawing(d.id)); } catch { /* keep the list row */ }
   }, []);
 
-  const showPlan = current?.kind === 'dxf';
+  const showPlan = current?.kind === 'dxf' || current?.kind === 'pdf';
   const chips = useMemo(() => (current ? (EXAMPLES[current.source] ?? []).slice(0, 6) : []), [current]);
 
   async function run(q: string) {

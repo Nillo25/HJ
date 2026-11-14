@@ -9,13 +9,15 @@ const STYLE: Record<string, { fill: string; stroke: string; width: number; label
   doors: { fill: '#fde68a', stroke: '#b45309', width: 1.5, label: 'Doors' },
   windows: { fill: '#bae6fd', stroke: '#0284c7', width: 1.5, label: 'Windows' },
   fixtures: { fill: '#ddd6fe', stroke: '#6d28d9', width: 1.5, label: 'Fixtures' },
+  rows: { fill: 'transparent', stroke: 'none', width: 1, label: 'Schedule rows' },
 };
-const ORDER = ['rooms', 'apartments', 'walls', 'windows', 'doors', 'fixtures'];
+const ORDER = ['rooms', 'apartments', 'walls', 'windows', 'doors', 'fixtures', 'rows'];
 
 /** Draws the parsed plan and marks the elements the answer was computed from. */
 export function PlanViewer({ drawingId, highlight, hover }: { drawingId: string; highlight: Set<number>; hover: number | null }) {
   const [plan, setPlan] = useState<Plan | null | undefined>(undefined);
   const [off, setOff] = useState<Set<string>>(new Set());
+  const [fit, setFit] = useState(true);       // true = zoom to the objects the answer used
 
   useEffect(() => {
     setPlan(undefined);
@@ -23,6 +25,22 @@ export function PlanViewer({ drawingId, highlight, hover }: { drawingId: string;
   }, [drawingId]);
 
   const layers = useMemo(() => ORDER.filter(k => plan?.layers[k]?.length), [plan]);
+
+  // bounding box of everything the answer used, so a small answer on a big sheet is readable
+  const focus = useMemo(() => {
+    if (!plan || !highlight.size) return null;
+    let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const k of Object.keys(plan.layers)) {
+      for (const it of plan.layers[k]) {
+        if (!highlight.has(it.id)) continue;
+        const pts = it.polygon ?? (it.bbox ? [[it.bbox[0], it.bbox[1]], [it.bbox[2], it.bbox[3]]] : []);
+        for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+      }
+    }
+    if (!isFinite(x0)) return null;
+    const pad = Math.max(x1 - x0, y1 - y0) * 0.08 + 10;
+    return [x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad];
+  }, [plan, highlight]);
   if (plan === undefined) return <Card><CardBody className="text-sm text-slate-500">Loading plan…</CardBody></Card>;
   if (!plan) return null;
 
@@ -33,10 +51,18 @@ export function PlanViewer({ drawingId, highlight, hover }: { drawingId: string;
     <Card>
       <CardHeader>
         <CardTitle>Plan</CardTitle>
-        <span className="text-xs text-slate-500">{highlight.size ? `${highlight.size} highlighted` : 'ask a question to highlight objects'}</span>
+        <span className="flex items-center gap-2 text-xs text-slate-500">
+          {highlight.size ? `${highlight.size} highlighted` : 'ask a question to highlight objects'}
+          {focus && (
+            <button onClick={() => setFit(f => !f)} className="rounded-md border border-slate-300 px-2 py-0.5 text-slate-700 hover:bg-slate-100">
+              {fit ? 'Show whole plan' : 'Zoom to answer'}
+            </button>
+          )}
+        </span>
       </CardHeader>
       <CardBody className="space-y-3">
-        <svg viewBox={`0 0 ${w} ${h}`} className="max-h-[32rem] w-full rounded-md border border-slate-200 bg-white" role="img" aria-label="Floor plan with highlighted objects">
+        <svg viewBox={focus && fit ? focus.join(' ') : `0 0 ${w} ${h}`} className="max-h-[32rem] w-full rounded-md border border-slate-200 bg-white" role="img" aria-label="Floor plan with highlighted objects">
+          {plan.background && <image href={plan.background} x={0} y={0} width={w} height={h} />}
           {layers.filter(k => !off.has(k)).map(k => (
             <g key={k}>
               {plan.layers[k].map(it => {

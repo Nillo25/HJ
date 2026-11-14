@@ -5,7 +5,7 @@ import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import path from 'node:path';
 
@@ -65,6 +65,15 @@ app.get('/api/drawings/:id/image', (c) => {
   });
 });
 
+app.get('/api/drawings/:id/sheet.svg', (c) => {
+  const s = getSession(c.req.param('id'));
+  const abs = s ? path.join(s.dir, 'sheet.svg') : '';
+  if (!s || s.meta.kind !== 'pdf' || !existsSync(abs)) return c.json({ error: 'no sheet' }, 404);
+  return c.body(Readable.toWeb(createReadStream(abs)) as ReadableStream, 200, {
+    'content-type': 'image/svg+xml', 'content-length': String(statSync(abs).size),
+  });
+});
+
 /* ------------------------- geometry for the plan viewer (contract section 6) */
 
 app.get('/api/drawings/:id/plan', (c) => {
@@ -74,6 +83,20 @@ app.get('/api/drawings/:id/plan', (c) => {
     drawing_id: s.drawing.id, type: null, subtype: null, floor: null, literal: null,
   }) as Element[];
   if (!els.some((e) => e.bbox)) return c.json({ error: 'no geometry' }, 404);
+
+  // vector PDF sheet: the rendered page is the background, schedule rows are boxes on it
+  if (s.meta.kind === 'pdf') {
+    const sheet = path.join(s.dir, 'sheet.svg');
+    if (!existsSync(sheet)) return c.json({ error: 'sheet was not rendered' }, 404);
+    const head = readFileSync(sheet, 'utf8').slice(0, 300).match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
+    if (!head) return c.json({ error: 'bad sheet' }, 500);
+    const [W, H] = [Number(head[1]), Number(head[2])];
+    const rows = els.filter((e) => e.bbox).map((e) => {
+      const b = JSON.parse(e.bbox!);
+      return { id: e.id, label: e.label, bbox: [b[0], H - b[3], b[2], H - b[1]] };
+    });
+    return c.json({ viewBox: [0, 0, W, H], background: `/api/drawings/${s.uid}/sheet.svg`, layers: { rows } });
+  }
 
   // overall extent -> screen viewBox 1200 x N, the Y axis is flipped
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
@@ -210,7 +233,13 @@ app.post('/api/upload', async (c) => {
       const note = (filesOf(s.db, s.drawing.id)[0]?.note as string | undefined) ?? 'no objects found';
       return finish(job, false, `could not parse the file: ${note}`);
     }
-    finish(job, true);
+    if (kind !== 'pdf') return finish(job, true);
+    // vector PDF: draw the sheet so answers can be shown on it; a failure here is not fatal
+    job.stage = 'rendering';
+    const r = spawn(PYTHON, [path.resolve('../indexer/render_pdf.py'), path.join(dir, name), path.join(root, 'sheet.svg')]);
+    const rt = setTimeout(() => r.kill(), INDEX_TIMEOUT_S * 1000);
+    r.on('error', () => { clearTimeout(rt); finish(job, true); });
+    r.on('close', () => { clearTimeout(rt); finish(job, true); });
   });
 
   return c.json({ jobId: uid });
