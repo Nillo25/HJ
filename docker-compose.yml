@@ -1,0 +1,14 @@
+# docker compose up --build   ->  http://localhost:3000
+services:
+  northline:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: server/.env        # model key and prices; optional: without it only known question patterns work
+        required: false
+    volumes:
+      - northline-data:/data     # uploads/<hash>/index.db and cache.db survive a restart
+    restart: unless-stopped
+volumes:
+  northline-data:

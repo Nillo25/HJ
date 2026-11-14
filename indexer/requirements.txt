@@ -1,3 +1,3 @@
-# indexer is stdlib-only for DXF and IFC.
-# PDF parsing (opening_design) adds one pure-Python dependency:
+# DXF and IFC are read by our own parsers (standard library only).
+# PDF text and schedules need one pure-Python dependency:
 pdfminer.six

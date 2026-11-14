@@ -33,15 +33,28 @@ refusal, so the system refuses and says what is missing.
 | Vector PDF sheet | PDF text and tables | Answer, evidence table, the sheet itself with the rows highlighted |
 | PNG plan (cubicasa-like) | not parsed yet | The image and a refusal with the reason |
 
-One file per upload; the user picks the kind. Each upload gets its own index (`uploads/<hash>/index.db`),
+One file per upload; the extension decides what it is (DXF, IFC, PDF, PNG). A PDF with no text and no drawn shapes is a scan: the
+browser turns its first page into a PNG. Each upload gets its own index (`uploads/<hash>/index.db`),
 so the same file is parsed once. See `docs/adr/0009`.
 
 ## Run
 
     pip install -r indexer/requirements.txt
     cd server && npm i && cp .env.example .env     # add a model key (optional)
-    cd ../web && npm i && npm run build            # writes server/public
-    cd ../server && PYTHON_BIN=python3.12 npm start   # http://localhost:3000
+    cd ../web && npm i && npm run build            # writes server/public (and copies web-ifc.wasm)
+    cd ../server && npm run build && PYTHON_BIN=python3.12 npm start   # http://localhost:3000
+
+### Docker
+
+    docker build -t northline .
+    docker run --rm -p 3000:3000 -v northline-data:/data --env-file server/.env northline
+    # or: docker compose up --build
+
+One image: the compiled API, the built web app, Python 3.11 with pdfminer.six. Uploads and the question cache live in the
+volume `/data` (`UPLOADS_DIR`, `CACHE_DB`). The model key and prices come from the environment, never from the image
+(`LLM_PROVIDER`, `LLM_MODEL`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `LLM_PRICE_IN/OUT`, `LLM_RPM`). Other settings:
+`UPLOAD_MAX_MB` (100), `INDEX_TIMEOUT_S` (120), `UPLOAD_TTL_HOURS` (24), `VIEWER_MAX_MB` (150), `PYTHON_BIN`.
+There is no authentication and no rate limit per user: put it behind a proxy if it is public.
 
 Needs Python 3.10+ (set `PYTHON_BIN` when the default `python3` is older) and Node 22+. `better-sqlite3` is the only native Node
 dependency. Without a model key, known question patterns still work and other
@@ -56,12 +69,12 @@ Server settings are in `server/.env`.
 
 ## Layout
 
-    indexer/   schema.sql  index.py  eval.py  answer.py  ask_cli.py
-               parse_dxf.py  parse_ifc.py  parse_pdf.py  group.py  labels.py
-    server/    src/{index,ask,tools,db,usage}.ts
-    web/       src/{App.tsx, components/, lib/api.ts}
-    docs/      adr/  contract.md  brief.md  backlog.md  ifc-viewer-spike/
-    data/      local databases and examples (git-ignored)
+    indexer/   index.py answer.py ask_cli.py  parse_{dxf,ifc,pdf}.py  render_dxf.py  ifc_geom.py ifc_facts.py
+               footprint.py group.py labels.py dict/ (label dictionaries per language)  eval.py bench.py schema.sql
+    server/    src/{index,ask,db,usage,py}.ts  test/  accuracy.json (last benchmark, shown in the UI)
+    web/       src/{App.tsx, components/, lib/}  (PlanViewer DXF/IFC plan, IfcViewer 3D, PdfViewer, FilePanel ...)
+    docs/      adr/  contract.md  brief.md  backlog.md  knowledge.md  ifc-viewer-spike/ (abandoned)
+    Dockerfile docker-compose.yml
 
 ## Accuracy
 
