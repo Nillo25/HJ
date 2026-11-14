@@ -9,6 +9,47 @@ evidence. Функция, вернувшая число без элементо�
 """
 import json
 import re
+import unicodedata
+
+
+def _slug(s: str) -> str:
+    """'4.korrus' -> '4korrus', 'Kælder' -> 'klder' (как в имени файла)."""
+    s = unicodedata.normalize("NFKD", (s or "").lower())
+    return "".join(c for c in s if c.isascii() and c.isalnum())
+
+
+PLAN_RE = re.compile(r"^(?P<model>.+?)_plan-\d+-(?P<floor>.+)$")
+
+
+def resolve_drawing(con, drawing: str):
+    """PDF-план отрисован из модели: '<модель>_plan-04-4-korrus' отвечается
+    по '<модель>.ifc', а этаж берётся из имени файла. Это сказано в их же
+    README, так что не обход, а подсказка из документации.
+
+    -> (имя чертежа, этаж или None)
+    """
+    row = con.execute("SELECT id FROM drawings WHERE name=?", (drawing,)).fetchone()
+    if row:
+        n = con.execute("SELECT COUNT(*) FROM elements WHERE drawing_id=?",
+                        (row[0],)).fetchone()[0]
+        if n:
+            return drawing, None
+
+    m = PLAN_RE.match(drawing)
+    if not m:
+        return drawing, None
+    model = m.group("model")
+    mrow = con.execute("SELECT id FROM drawings WHERE name=?", (model,)).fetchone()
+    if not mrow:
+        return drawing, None
+
+    want = _slug(m.group("floor"))
+    floor = None
+    for (nm,) in con.execute("SELECT name FROM floors WHERE drawing_id=?", (mrow[0],)):
+        if nm and _slug(nm) == want:
+            floor = nm
+            break
+    return model, floor
 
 # ---------------------------------------------------------------- функции
 
@@ -105,6 +146,13 @@ def list_floors(con, drawing):
 # сюда не попадёт и уйдёт в LLM-путь.
 
 T = [
+    # --- ifc_models: по этажу ---
+    (r"how many (?P<kind>doors|windows|walls|columns|beams|stairs|rooms \(spaces\))"
+     r" are shown on the floor plan of ['\"“](?P<floor>[^'\"”]+)['\"”]",
+     "count_objects", {"_ifc_floor": True}),
+    (r"how many (?P<kind>doors|windows|walls|columns|beams|stairs|sanitary fixtures|"
+     r"rooms \(spaces\)) are there in the model",
+     "count_objects", {"_ifc_model": True}),
     # --- swiss_dwellings + cubicasa5k: подсчёты ---
     (r"how many apartments|wie viele wohnungen|combien d.appartements",
      "count_objects", {"type": "apartment"}),
@@ -138,19 +186,14 @@ T = [
      "sum_quantity", {"type": "room", "field": "area", "only_numbered": True}),
     (r"net floor area of apartment (?P<apt>[A-Z])\b",
      "apartment_area", {"_apt": True}),
+    (r"net floor area of (?:the )?room '(?P<room>.+?)'(?:\s+on '(?P<floor>[^']+)')?",
+     "room_area", {"_room": True}),
     (r"net floor area of room (?P<room>[\d.\-]+)",
      "room_area", {"_room": True}),
     (r"total net area .* rooms labelled '(?P<lit>.+)' on this floor",
      "sum_quantity", {"type": "room", "field": "area"}),
     (r"total net area .* rooms labelled \"(?P<lit>.+)\" on this floor",
      "sum_quantity", {"type": "room", "field": "area"}),
-    # --- ifc_models: по этажу ---
-    (r"how many (?P<kind>doors|windows|walls|columns|beams|stairs|rooms \(spaces\))"
-     r" are shown on the floor plan of ['\"“](?P<floor>[^'\"”]+)['\"”]",
-     "count_objects", {"_ifc_floor": True}),
-    (r"how many (?P<kind>doors|windows|walls|columns|beams|stairs|sanitary fixtures|"
-     r"rooms \(spaces\)) are there in the model",
-     "count_objects", {"_ifc_model": True}),
 ]
 
 IFC_KIND = {"doors": "door", "windows": "window", "walls": "wall",
@@ -174,6 +217,7 @@ def match_template(question: str):
             kw["floor"] = g["floor"]
         if base.get("_ifc_model"):
             kw["type"] = IFC_KIND[g["kind"]]
+            kw["_whole_model"] = True
         if base.get("_apt"):
             kw["label"] = g["apt"]
         if base.get("_room"):
@@ -211,11 +255,28 @@ def evidence_of(rows, limit=50):
 
 def ask(con, drawing: str, question: str) -> dict:
     """Ответ в форме контракта. route='cache' — без единого вызова модели."""
+    drawing, plan_floor = resolve_drawing(con, drawing)
+
+    # чертёж не разобран — честный отказ, а не ноль. Ноль засчитывается
+    # как неверный ответ, а отказ показывает границу возможностей.
+    row = con.execute("SELECT id FROM drawings WHERE name=?", (drawing,)).fetchone()
+    if not row:
+        return {"status": "refused", "reason": "чертёж не найден",
+                "missing": "drawing", "route": "cache", "cost_usd": 0.0}
+    if not con.execute("SELECT 1 FROM elements WHERE drawing_id=? LIMIT 1",
+                       (row[0],)).fetchone():
+        return {"status": "refused",
+                "reason": "этот формат пока не разбирается",
+                "missing": "parser", "route": "cache", "cost_usd": 0.0}
+
     m = match_template(question)
     if not m:
         return {"status": "refused", "reason": "тип вопроса не распознан",
                 "missing": "template", "route": "cache", "cost_usd": 0.0}
     fn, kw = m
+    whole = kw.pop("_whole_model", False)
+    if plan_floor and not whole and "floor" not in kw and fn != "list_floors":
+        kw["floor"] = plan_floor      # вопрос задан к плану одного этажа
     try:
         value, rows = FNS[fn](con, drawing, **kw)
     except Exception as e:
