@@ -38,7 +38,7 @@ ARC_MIN_PPM = 33.0  # двери по дугам — только если дв�
 WALL_ROOMS_MIN_PPM = 20.0  # помещения по стенам (рамки от ИИ) — только если комната 3 м на листе ≥ 60 px
 
 # менять при правках разбора, влияющих на сцену: повторная загрузка того же файла тогда разберёт его заново
-PIPELINE_VERSION = "2026-11-14.scale4"
+PIPELINE_VERSION = "2026-11-14.scale4+sheet-tiles-door-verify"
 
 THRESHOLDS = json.loads((Path(__file__).parent / "thresholds.json").read_text())
 
@@ -147,6 +147,7 @@ def run(image: Path, out: Path, model: str | None = None, gt_svg: Path | None = 
     else:
         if not model:
             raise ValueError("нужен --model (веса YOLO-seg) или --gt-svg")
+        original = img  # полное разрешение — для тайлов и проверки дверей на чертёжных листах (fp/tiles.py)
         if do_preprocess:
             img, info = preprocess(img)
         else:
@@ -162,7 +163,12 @@ def run(image: Path, out: Path, model: str | None = None, gt_svg: Path | None = 
     if auto_scale is None:
         auto_scale = os.environ.get("FP_AUTO_SCALE", "1") != "0"
     if auto_scale:
-        analyze_sheet(img if img.ndim == 3 else cv2.cvtColor(img, cv2.COLOR_GRAY2BGR), sc)
+        full = f = None
+        if not gt_svg:
+            from .tiles import full_res
+            full = full_res(original, info)
+            f = w / full.shape[1]
+        analyze_sheet(img if img.ndim == 3 else cv2.cvtColor(img, cv2.COLOR_GRAY2BGR), sc, full=full, f=f)
     sc.save(out)
     return sc
 
@@ -194,9 +200,11 @@ def drop_outside_drawing(sc: Scene, bbox, pad: float = 0.02, max_frac: float | N
     return removed
 
 
-def analyze_sheet(img: np.ndarray, sc: Scene) -> Scene:
+def analyze_sheet(img: np.ndarray, sc: Scene, full: np.ndarray | None = None, f: float | None = None) -> Scene:
     """Один вызов VLM на лист: штамп, легенда, таблицы, примечания, шкала, подписи площадей.
-    Затем без VLM: масштаб (fp.scale) и зоны по цветам легенды (fp.sheet.find_zones) — в сцену."""
+    Затем без VLM: масштаб (fp.scale) и зоны по цветам легенды (fp.sheet.find_zones) — в сцену.
+    full — лист в полном разрешении (после того же поворота/обрезки), f — full -> координаты сцены;
+    без него тайлы и проверка дверей работают по img (при повторном анализе сохранённой сцены)."""
     from .scale import estimate
     from .scene import Element
     from .sheet import find_zones, read_sheet
@@ -268,14 +276,33 @@ def analyze_sheet(img: np.ndarray, sc: Scene) -> Scene:
     # чертёжный лист без подписей помещений (трубопроводы, конструкции): помещения по стенам, рамки от VLM
     # на мелком масштабе (общежитие A-2, 9.9 px/м: комната ~30 px) рамки ИИ неточны, и он объединяет
     # повторяющиеся комнаты в одну рамку на крыло — помещения по стенам только от WALL_ROOMS_MIN_PPM
+    drawing_sheet = bool(re.match(r"^[A-Z]{1,3}[-.]?\d", str(tb.get("sheet_number") or "")))
+    # чертёжный лист: мелкие объекты (двери, окна, стены, сантехника) — YOLO по тайлам в масштабе обучения
+    # (fp/tiles.py; школа 1:200: стены 3 -> 70 участков, двери-кандидаты 10/32 -> 32/32 на eval/doors_gt.json)
+    full_img, ff = (full, f) if full is not None and f else (img, 1.0)
+    if est.get("px_per_m") and drawing_sheet and os.environ.get("FP_TILES", "1") != "0" and sc.meta.get("model"):
+        from .tiles import retile
+        sc.meta["tiles"] = retile(sc, full_img, ff, sc.meta["model"])
     if (est.get("px_per_m") or 0) >= WALL_ROOMS_MIN_PPM and tb.get("sheet_number") and not sheet.get("area_labels"):
         rooms_by_walls(img, sc, sheet)
     # чертёжный лист (номер вида M-101A, A-2, C01): двери ещё и по дугам открывания — модель обучена на квартирах
     # и на таких листах видит их слабо. На квартирных планах дуги вредят (53.7% -> 36.6% на train+val eval_set),
     # поэтому там не включаются. Мелкий масштаб (дверь < 20 px, школа 1:200) — тоже нет: под четверть окружности
     # такого размера подходят стулья и буквы
-    drawing_sheet = bool(re.match(r"^[A-Z]{1,3}[-.]?\d", str(tb.get("sheet_number") or "")))
-    if (est.get("px_per_m") or 0) >= ARC_MIN_PPM and drawing_sheet:
+    # двери на чертёжном листе: кандидаты с запасом (тайлы + все дуги) -> проверка ИИ по вырезкам
+    # (fp/door_verify.py: на eval/doors_gt.json лишних 5 -> 1, пропущено 22 -> 0, ~$0.04 на лист).
+    # Без ключа или при ошибке — прежний путь: дуги рядом со стенами
+    verified = False
+    if est.get("px_per_m") and drawing_sheet and os.environ.get("FP_DOOR_VERIFY", "1") != "0" and sc.meta.get("model"):
+        from .door_verify import apply as verify_doors
+        try:
+            dv = verify_doors(sc, full_img, ff, sc.meta["model"])
+            sc.meta["door_verify"] = dv
+            sc.meta["sheet_cost_usd"] = round(sc.meta.get("sheet_cost_usd", 0) + dv["cost_usd"], 6)
+            verified = True
+        except Exception as e:  # noqa: BLE001
+            sc.meta["door_verify"] = {"done": False, "error": f"{type(e).__name__}: {e}"}
+    if not verified and (est.get("px_per_m") or 0) >= ARC_MIN_PPM and drawing_sheet:
         add_arc_doors(img, sc)
     # окна по полосам остекления в стенах — тоже только на чертёжных листах: на квартирах CubiCasa модель
     # по окнам лучше, а полосы добавляют лишние (train+val eval_set: 41.5% -> 24.5%)
