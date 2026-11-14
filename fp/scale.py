@@ -80,10 +80,11 @@ def measure_bar(img: np.ndarray, bbox) -> float | None:
         return None
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
     dark = gray < 170  # линии шкалы бывают серыми (тонкий контур сегментов)
-    # линии, проходящие через всю рамку от края до края (граница штампа, рамка листа), — не шкала:
-    # шкала лежит внутри рамки VLM с запасом pad, а такая линия длиннее рамки и даёт её ширину (S-100F: 158 px вместо 98)
+    # длинные линии, уходящие за край рамки (граница штампа, рамка листа, подчёркивание заголовка), — не шкала:
+    # шкала лежит внутри рамки VLM с запасом pad и края не касается, а такая линия даёт ширину рамки
+    # (S-100F: через всю рамку, 158 px вместо 98; M-101A: с левого края, 151 px вместо 121)
     edge = 3
-    crossing = dark[:, :edge].any(1) & dark[:, -edge:].any(1) & (dark.sum(1) >= 0.9 * dark.shape[1])
+    crossing = (dark[:, :edge].any(1) | dark[:, -edge:].any(1)) & (dark.sum(1) >= 0.8 * dark.shape[1])
     dark[crossing] = False
     cov = dark.sum(1)
     if cov.max() < 30:

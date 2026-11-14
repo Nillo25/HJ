@@ -278,6 +278,17 @@ def test_measure_bar_ignores_frame_line_and_labels():
     assert scale.measure_bar(img, [150, 45, 250, 55]) == 100.0
 
 
+def test_measure_bar_ignores_line_from_one_edge():
+    """M-101A: над шкалой линия заходит в рамку слева и обрывается внутри — это не шкала."""
+    import numpy as np
+    from fp import scale
+    img = np.full((120, 500, 3), 255, np.uint8)
+    img[30:32, 0:270] = 0            # линия от края листа, обрывается за концом шкалы
+    img[48:51, 150:200] = 0
+    img[51:54, 200:250] = 0
+    assert scale.measure_bar(img, [150, 40, 255, 55]) == 100.0
+
+
 def test_scale_sources_disagree():
     from fp import scale
     bar = {"px_per_m": 79.0, "source": "scale_bar", "confidence": "medium", "detail": "шкала"}
