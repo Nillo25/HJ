@@ -45,7 +45,7 @@ CubiCasa5K (~5 ГБ, Zenodo: https://zenodo.org/records/2613548) распако�
 .venv/bin/yolo segment val model=<путь>/best.pt data=data/yolo/floorplans.yaml   # mAP по классам
 ```
 Путь к `best.pt` печатается в конце обучения (Ultralytics 8.4 кладёт в `runs/segment/runs/<name>/weights/`).
-Ниже `runs/cubicasa/weights/best.pt` — подставьте свой.
+Ниже `runs/cubicasa/weights/best.pt` — подставьте свой. Готовые веса и как их передать — [WEIGHTS.md](WEIGHTS.md).
 
 **Версии модели.** v1 — 15 классов (сауна внутри `room_bath`), обучена 11 эпох в Colab
 (`MyDrive/floorplan/runs/cubicasa`). v2 — 16 классов: добавлен значок `sauna_bench` (все SaunaBench*: ~10,9 тыс. скамей в 3235 планах;

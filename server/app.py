@@ -37,8 +37,9 @@ def _load_env(path: Path):
 
 _load_env(ROOT / ".env")
 SCENES = Path(os.environ.get("FP_SCENES", ROOT / "data" / "scenes"))
-_DEFAULT_MODEL = ROOT / "runs/colab/v2_best.pt"  # v2: 16 классов, 5-я эпоха; пороги в fp/thresholds.json
-MODEL = os.environ.get("FP_MODEL") or (str(_DEFAULT_MODEL) if _DEFAULT_MODEL.exists() else None)
+# v2: 16 классов, 5-я эпоха; пороги в fp/thresholds.json; передача весов — WEIGHTS.md
+_DEFAULT_MODELS = [ROOT / "runs/colab/floorplan_v2.pt", ROOT / "runs/colab/v2_best.pt"]
+MODEL = os.environ.get("FP_MODEL") or next((str(p) for p in _DEFAULT_MODELS if p.exists()), None)
 SCENES.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Floor plan MVP")
