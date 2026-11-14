@@ -1,11 +1,11 @@
 """DXF swiss_dwellings -> elements.
 
-Слои: ROOM_OUTLINE, ROOM_TEXT, UNIT_OUTLINE, WALL, DOOR, WINDOW, FIXTURE, ANNOTATION
-Координаты уже в метрах («Masse in Metern»), площадь полигона выходит в м².
+Layers: ROOM_OUTLINE, ROOM_TEXT, UNIT_OUTLINE, WALL, DOOR, WINDOW, FIXTURE.
+Coordinates are already in metres ("Masse in Metern"), so polygon area is m2.
 
-Парсер свой, без ezdxf: ASCII DXF — это чередующиеся строки «код / значение».
-Проверено на site1000_bldg2082_floor9385: квартиры 4=4, двери 36=36, окна 28=28,
-площадь комнаты 16.78=16.78.
+Hand-rolled, no ezdxf: ASCII DXF is alternating code / value lines.
+Verified on site1000_bldg2082_floor9385: apartments 4=4, doors 36=36,
+windows 28=28, room area 16.78=16.78.
 """
 import json
 import re as _re
@@ -13,8 +13,8 @@ import re as _re
 import group as G
 from labels import classify_text, is_outdoor, norm, subtype_for
 
-# «Whg. B», «App. A», «Wohnung C», «Appartamento D» — буква квартиры
-# написана на самом плане. Это надёжнее порядка обхода файла.
+# "Whg. B", "App. A", "Wohnung C", "Appartamento D" - the apartment letter
+# is written on the plan itself, which beats relying on file order.
 APT_RE = _re.compile(
     r"^\s*(?:whg|wohnung|app|appartamento|appartement|apt|apartment)\.?\s*"
     r"([A-Z])\b", _re.I)
@@ -69,7 +69,7 @@ def bbox(p):
 
 
 def inside(pt, poly) -> bool:
-    """Точка в многоугольнике, луч вправо."""
+    """Point in polygon, ray cast to the right."""
     x, y = pt
     c = False
     n = len(poly)
@@ -86,11 +86,11 @@ def centroid(p):
 
 
 def parse(path: str, dict_rows: dict) -> list[dict]:
-    """Возвращает список строк для таблицы elements (без drawing_id/file_id)."""
+    """Rows for the elements table (without drawing_id / file_id)."""
     ents = read_entities(path)
     out: list[dict] = []
 
-    # --- комнаты -------------------------------------------------------
+    # --- rooms -----------------------------------------------------------
     rooms = []
     for e in ents:
         if e["type"] == "LWPOLYLINE" and layer(e) == "ROOM_OUTLINE":
@@ -100,7 +100,7 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
                               "handle": (e.get("5") or [""])[0],
                               "name": None, "number": None, "printed_area": None})
 
-    # --- подписи: раскидываем по комнатам, в которые попали -------------
+    # --- labels: assign to the room polygon they fall inside --------------
     texts = []
     for e in ents:
         if e["type"] in ("TEXT", "MTEXT"):
@@ -143,26 +143,26 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
                 "printed_area": r["printed_area"],
                 "outdoor": is_outdoor(subtype_for(r["name"] or "", dict_rows)),
                 "labeled": bool(lbl),
-                # «все пронумерованные внутренние помещения, кроме балконов,
-                # лоджий, террас, шахт и пустот»: есть подпись, есть номер,
-                # не наружное. Безымянные обрезки (<1 м², без подписи) — это
-                # и есть шахты и пустоты, они отсекаются условием labeled.
+                # "all numbered indoor rooms, excluding balconies, loggias,
+                # terraces, shafts and voids": has a label, has a number,
+                # not outdoor. Unlabelled slivers are the shafts and voids,
+                # and the labeled flag drops them.
                 "numbered_indoor": bool(lbl) and bool(r["number"]) and
                                    not is_outdoor(subtype_for(r["name"] or "", dict_rows)),
             }),
         })
 
-    # --- квартиры (UNIT_OUTLINE) ---------------------------------------
+    # --- apartments (UNIT_OUTLINE) ---------------------------------------
     units = [pts(e) for e in ents
              if e["type"] == "LWPOLYLINE" and layer(e) == "UNIT_OUTLINE"]
     for i, p in enumerate(units):
         if len(p) < 3:
             continue
-        # площадь квартиры = сумма комнат внутри контура (НЕ площадь контура:
-        # контур включает стены и даёт завышение ~2-3%)
+        # apartment area = sum of contained rooms, NOT the outline area:
+        # the outline includes walls and overshoots by 2-3%
         inner = [r for r in rooms if inside(centroid(r["polygon"]), p)]
 
-        # буква квартиры — с самого плана, если она там написана
+        # apartment letter from the plan itself, when written there
         letter = None
         for r in inner:
             m = APT_RE.match(r["name"] or "")
@@ -172,7 +172,7 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
         if letter is None:
             letter = chr(ord("A") + i)
 
-        # в площадь квартиры входят только внутренние помещения с подписью
+        # only labelled indoor rooms count towards apartment area
         counted = [r for r in inner
                    if (r["name"] or r["number"])
                    and not is_outdoor(subtype_for(r["name"] or "", dict_rows))]
@@ -190,18 +190,18 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
                                  "letter_from_plan": letter != chr(ord("A") + i)}),
         })
 
-    # --- окна: ПРОВЕРЕНО 100% на 65 файлах — три полилинии на одно окно --
+    # --- windows: VERIFIED 100% on 65 files, three polylines per window --
     wins = [pts(e) for e in ents
             if e["type"] == "LWPOLYLINE" and layer(e) == "WINDOW"]
     for i in range(0, len(wins) - 2, 3):
         group = wins[i] + wins[i + 1] + wins[i + 2]
         out.append({"type": "window", "bbox": json.dumps(bbox(group))})
 
-    # --- двери: полилинии минус дуги -------------------------------------
-    # ПРОВЕРЕНО: 65 из 65 файлов. У каждой двери своя полилиния-полотно,
-    # и каждая дуга раскрытия добавляет ещё одну. Значит дверей ровно
-    # (полилиний - дуг). Наивный счёт дуг давал 56%, склейка по близости
-    # слепляла соседние двери и давала недосчёт.
+    # --- doors: polylines minus arcs -------------------------------------
+    # VERIFIED: 65 of 65 files. Each door has its own leaf polyline and
+    # each swing arc adds one more, so doors == polylines - arcs.
+    # Counting arcs alone scored 56%; clustering by proximity merged
+    # neighbouring doors and undercounted.
     door_polys = [pts(e) for e in ents
                   if e["type"] == "LWPOLYLINE" and layer(e) == "DOOR"]
     door_polys = [p for p in door_polys if p]
@@ -212,8 +212,8 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
             r = float((e.get("40") or [0])[0])
             door_arcs.append((cx, cy, r))
 
-    # каждой дуге сопоставляем ближайшую свободную полилинию и убираем её:
-    # останется ровно (полилиний - дуг) штук, и у каждой есть геометрия
+    # pair each arc with its nearest free polyline and drop that polyline:
+    # exactly (polylines - arcs) remain, each with geometry to highlight
     taken = set()
     for cx, cy, r in door_arcs:
         best, bestd = None, None
@@ -235,7 +235,7 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
                     "polygon": json.dumps([[round(x, 4), round(y, 4)] for x, y in p]),
                     "props": json.dumps({"rule": "polys_minus_arcs"})})
 
-    # --- стены ----------------------------------------------------------
+    # --- walls -------------------------------------------------------------
     for e in ents:
         if e["type"] == "LWPOLYLINE" and layer(e) == "WALL":
             p = pts(e)
@@ -243,7 +243,7 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
                 out.append({"type": "wall", "polygon": json.dumps(p),
                             "bbox": json.dumps(bbox(p))})
 
-    # --- сантехника: склейка + габарит + комната --------------------------
+    # --- fixtures: cluster, then size and room ------------------------------
     fx_prims = []
     for e in ents:
         if layer(e) != "FIXTURE":

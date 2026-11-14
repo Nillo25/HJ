@@ -1,10 +1,10 @@
-"""Нормализация подписей комнат и ручная основа словаря."""
+"""Room label normalisation and the hand-written dictionary."""
 import re
 
-# Ручная основа. Всё, что не нашлось здесь, собирается в unknown_labels.txt
-# и разрешается одним пакетным вызовом модели (resolve_labels.py).
+# Hand-written seed. Anything missing goes to unknown_labels.txt and is
+# resolved in one batch LLM call (resolve_labels.py).
 SEED = {
-    # финские (cubicasa5k)
+    # Finnish (cubicasa5k)
     "mh": "bedroom", "makuuhuone": "bedroom",
     "oh": "living", "olohuone": "living",
     "k": "kitchen", "keittio": "kitchen", "keittiö": "kitchen",
@@ -14,10 +14,10 @@ SEED = {
     "wc": "wc",
     "s": "sauna", "sauna": "sauna",
     "parveke": "balcony", "par": "balcony",
-    "vh": "storage",          # гардеробная — НЕ спальня
+    "vh": "storage",          # walk-in closet, NOT a bedroom
     "et": "corridor", "eteinen": "corridor",
     "khh": "technical",       # kodinhoitohuone
-    # немецкие / швейцарские (swiss_dwellings)
+    # German / Swiss (swiss_dwellings)
     "zimmer": "bedroom", "schlafzimmer": "bedroom",
     "kuche": "kitchen", "küche": "kitchen",
     "bad": "bathroom", "dusche": "bathroom",
@@ -30,30 +30,30 @@ SEED = {
     "reduit": "storage", "abstellraum": "storage", "keller": "storage",
     "treppenhaus": "corridor",
     "technik": "technical", "technikraum": "technical",
-    # французские
+    # French
     "cuisine": "kitchen", "chambre": "bedroom", "couloir": "corridor",
     "salle de bains": "bathroom", "sejour": "living", "séjour": "living",
-    # итальянские
+    # Italian
     "cucina": "kitchen", "stanza": "bedroom", "bagno": "bathroom",
     "corridoio": "corridor", "soggiorno": "living",
-    # эстонские (ifc_models)
+    # Estonian (ifc_models)
     "tualettruum": "wc", "magamistuba": "bedroom", "koogitoa": "kitchen",
     "elutuba": "living", "koridor": "corridor",
-    # английские
+    # English
     "bedroom": "bedroom", "kitchen": "kitchen", "bathroom": "bathroom",
     "toilet": "wc", "restroom": "wc", "corridor": "corridor",
     "living room": "living", "balcony": "balcony", "storage": "storage",
     "office": "office", "lobby": "corridor",
 }
 
-# Подпись вида «12.34 m²» — это печатная площадь, а не название комнаты
+# A label like "12.34 m2" is a printed area, not a room name
 AREA_RE = re.compile(r"^\d+[.,]\d+\s*m[²2]$", re.I)
-# Подпись вида «2.10» или «105» — номер комнаты
+# A label like "2.10" or "105" is a room number
 NUMBER_RE = re.compile(r"^\d+([.\-]\d+)*$")
 
 
 def classify_text(s: str) -> str:
-    """area | number | name | other — что это за подпись на чертеже."""
+    """area | number | name | other - what kind of label this is."""
     t = (s or "").strip()
     if not t:
         return "other"
@@ -65,19 +65,19 @@ def classify_text(s: str) -> str:
 
 
 def norm(s: str) -> str:
-    """Нормализация подписи для поиска по словарю.
+    """Normalise a label for dictionary lookup.
 
     'MH 2.03' -> 'mh'   'KPH.' -> 'kph'   'Küche' -> 'küche'
     """
     t = (s or "").strip().lower()
-    t = re.sub(r"\s*\d+([.\-]\d+)*\s*$", "", t)   # хвостовой номер комнаты
+    t = re.sub(r"\s*\d+([.\-]\d+)*\s*$", "", t)   # trailing room number
     t = t.strip(" .,:;()[]")
     t = re.sub(r"\s+", " ", t)
     return t
 
 
 def subtype_for(label: str, dict_rows: dict | None = None) -> str | None:
-    """Смысловой тип по подписи. None = неизвестно, пойдёт в unknown_labels."""
+    """Semantic type for a label. None means unknown -> unknown_labels."""
     n = norm(label)
     if not n:
         return None
@@ -87,7 +87,7 @@ def subtype_for(label: str, dict_rows: dict | None = None) -> str | None:
 
 
 def load_dict(con) -> dict:
-    """Словарь из базы поверх SEED."""
+    """Dictionary rows from the database layered over SEED."""
     rows = dict(SEED)
     for ln, st in con.execute("SELECT label_norm, subtype FROM label_dict"):
         rows[ln] = st
@@ -101,9 +101,9 @@ def seed_dict(con):
     )
 
 
-# Наружные помещения: не входят ни в площадь квартиры, ни в «пронумерованные
-# внутренние». Проверено на swiss_dwellings: расхождение по площадям
-# объяснялось ровно балконами плюс безымянными обрезками.
+# Outdoor spaces: excluded from apartment area and from "numbered indoor
+# rooms". Verified on swiss_dwellings: the area mismatch was exactly
+# balconies plus unlabelled slivers.
 OUTDOOR = {"balcony"}
 
 

@@ -1,16 +1,16 @@
-"""Склейка примитивов DXF в объекты + классификация сантехники.
+"""Cluster DXF primitives into objects; classify fixtures.
 
-Одна дверь или один прибор нарисованы десятком отрезков, дуг и окружностей.
-Пока примитивы не склеены в объекты, считать и классифицировать нечего.
-Это чинит разом два слабых места: двери (56%) и сантехнику (не различена).
+A door or a fixture is drawn as a dozen segments, arcs and circles.
+Nothing can be counted or classified until primitives are clustered.
+This fixes both weak spots at once: doors and fixture subtypes.
 
-Классификация — по габариту и по комнате, в которой объект лежит.
-Пороги подобраны под европейские планы swiss_dwellings; на других
-конвенциях черчения требуют перенастройки (говорим об этом вслух).
+Classification uses bounding box size plus the room the object sits in.
+Thresholds are tuned on European plans (swiss_dwellings); other drawing
+conventions need retuning, and we say so out loud.
 """
 import math
 
-# ------------------------------------------------------------- геометрия
+# ------------------------------------------------------------- geometry
 
 def bbox_of(points):
     xs = [p[0] for p in points]
@@ -23,7 +23,7 @@ def bbox_union(a, b):
 
 
 def bbox_gap(a, b) -> float:
-    """Зазор между рамками. 0 = пересекаются или касаются."""
+    """Gap between boxes. 0 means they overlap or touch."""
     dx = max(0.0, max(a[0], b[0]) - min(a[2], b[2]))
     dy = max(0.0, max(a[1], b[1]) - min(a[3], b[3]))
     return math.hypot(dx, dy)
@@ -35,13 +35,13 @@ def dims(bb):
     return w, h, hi, lo, (hi / lo if lo > 1e-9 else 999.0)
 
 
-# --------------------------------------------------------------- склейка
+# ----------------------------------------------------------- clustering
 
 def cluster(prims, gap=0.05):
-    """prims: [{'bbox': [...], ...}]. Объединяет всё, что ближе gap метров.
+    """prims: [{'bbox': [...], ...}]. Merges anything closer than gap metres.
 
-    Простое объединение множеств по парам. Примитивов на слое сотни,
-    квадратичная сложность здесь не мешает.
+    Plain pairwise union-find. A layer holds a few hundred primitives, so
+    quadratic cost is fine here.
     """
     n = len(prims)
     parent = list(range(n))
@@ -77,31 +77,31 @@ def cluster(prims, gap=0.05):
     return out
 
 
-# -------------------------------------------------- классификация приборов
-# Реальные габариты, метры. Полосы специально широкие: лучше промахнуться
-# в сторону "other", чем назвать ванну душем.
+# ------------------------------------------- fixture classification
+# Real-world sizes in metres. Bands are deliberately wide: better to fall
+# through to "other" than to call a bathtub a shower.
 
 def classify_fixture(group, room_subtype: str | None) -> tuple[str | None, float]:
-    """-> (subtype, confidence). None = не опознан, пойдёт как fixture/other."""
+    """-> (subtype, confidence). None means unrecognised -> fixture/other."""
     _, _, long, short, aspect = dims(group["bbox"])
     area = long * short
 
-    # ванна: длинная и узкая
+    # bathtub: long and narrow
     if 1.4 <= long <= 2.0 and 0.6 <= short <= 0.9:
         return "bathtub", 0.9
 
-    # душевой поддон: почти квадрат, заметно меньше ванны
+    # shower tray: near square, clearly smaller than a bathtub
     if 0.7 <= long <= 1.2 and aspect <= 1.35:
         return "shower", 0.85
 
-    # унитаз: вытянутый, маленький; на кухне не бывает
+    # toilet: small and elongated; never in a kitchen
     if 0.5 <= long <= 0.85 and 0.3 <= short <= 0.5 and room_subtype != "kitchen":
         if room_subtype in ("wc", "bathroom", None):
             return "toilet", 0.85 if room_subtype else 0.6
 
-    # раковина / мойка: маленькая, часто круглая
+    # washbasin / sink: small, often a circle
     if 0.3 <= long <= 0.9 and short <= 0.65:
-        # контекст комнаты решает трудную пару унитаз / раковина
+        # the room decides the hard pair: toilet vs washbasin
         if room_subtype == "kitchen":
             return "sink", 0.9
         if group["has_circle"]:
@@ -111,14 +111,14 @@ def classify_fixture(group, room_subtype: str | None) -> tuple[str | None, float
     return None, 0.3
 
 
-# ------------------------------------------------------- двери из примитивов
+# ------------------------------------------------ doors from primitives
 
 def classify_door(group) -> tuple[str, float]:
-    """Тип двери по склеенной группе.
+    """Door type from a clustered group.
 
-    Наивное правило «одна дуга = одна дверь» давало 56%: у раздвижных дуги
-    нет, у двустворчатых их две. После склейки считаем группы, а дуги внутри
-    группы определяют подтип.
+    The naive "one arc = one door" rule scored 56%: sliding doors have no
+    arc and double doors have two. Count groups; arcs inside a group give
+    the subtype.
     """
     arcs = sum(1 for m in group["members"] if m.get("shape") == "arc")
     _, _, long, _, _ = dims(group["bbox"])
@@ -127,17 +127,17 @@ def classify_door(group) -> tuple[str, float]:
     if arcs == 1:
         return "single", 0.9
     if long >= 0.6:
-        return "sliding", 0.6      # полотно без дуги
-    return "opening", 0.5          # проём без полотна — НЕ считается дверью
+        return "sliding", 0.6      # leaf without an arc
+    return "opening", 0.5          # opening with no leaf - NOT a door
 
 
-# ------------------------------------------------------------- диагностика
+# ------------------------------------------------------------ diagnostics
 
 def histogram(groups, bins=(0.2, 0.4, 0.6, 0.8, 1.0, 1.3, 1.6, 2.0, 3.0)):
-    """Распределение габаритов — смотреть ПЕРЕД подбором порогов.
+    """Size distribution - look at this BEFORE picking thresholds.
 
-    Если размеры лягут понятными полосами, пороги очевидны.
-    Если размажутся — склейка работает плохо, чинить её, а не пороги.
+    If sizes fall into clear bands, thresholds are obvious.
+    If they smear, clustering is broken - fix that, not the thresholds.
     """
     rows = []
     for g in groups:

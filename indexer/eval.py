@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Стенд оценки: прогон questions.jsonl и таблица точности.
+"""Eval harness: run questions.jsonl and print the accuracy table.
 
-    python eval.py <папка датасета> [--db app.db] [--source swiss_dwellings]
+    python eval.py <dataset folder> [--db app.db] [--source swiss_dwellings]
                    [--api http://localhost:3000/api/ask] [--limit 500]
 
-Без --api спрашивает напрямую через answer.ask (быстро, до появления бэка).
-С --api — через HTTP, то есть меряет то, что реально увидит жюри.
+Without --api it calls answer.ask directly: fast, works before the backend.
+With --api it goes over HTTP, measuring what the judges will actually see.
 
-Правила сверки — их: количество точно, площади/длины/объёмы ±2%,
-текст свободной формы (пропускаем, считаем отдельно).
-Дедуп по языку: один вопрос на 2-4 языках — это одна проверка,
-иначе проценты надуты в 3,4 раза.
+Their scoring rules: counts exact, areas/lengths/volumes within 2%,
+text free-form (skipped here, judged separately).
+Language dedupe: the same question in 2-4 languages is one check,
+otherwise the percentages are inflated 3.4x.
 """
 import argparse
 import collections
@@ -41,7 +41,7 @@ def verdict(expected, got, qtype) -> str:
         if e == 0:
             return "correct" if g == 0 else "wrong"
         return "correct" if abs(g - e) <= TOL[qtype] * abs(e) else "wrong"
-    return "skipped"          # text / other — руками или моделью-судьёй
+    return "skipped"          # text / other: by hand or an LLM judge
 
 
 def main():
@@ -52,7 +52,7 @@ def main():
     ap.add_argument("--api", default=None)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--no-dedupe", action="store_true")
-    ap.add_argument("--show", type=int, default=12, help="сколько промахов печатать")
+    ap.add_argument("--show", type=int, default=12, help="how many misses to print")
     a = ap.parse_args()
 
     qpath = os.path.join(a.root, "questions.jsonl")
@@ -68,7 +68,7 @@ def main():
                 continue
             seen.add(k)
             uniq.append(r)
-        print(f"вопросов {len(rows)} -> после дедупа по языку {len(uniq)}")
+        print(f"questions {len(rows)} -> after language dedupe {len(uniq)}")
         rows = uniq
     if a.limit:
         rows = rows[: a.limit]
@@ -100,7 +100,7 @@ def main():
         got = res.get("answer") if res.get("status") in ("answered", "estimated") else None
         v = verdict(r["answer"], got, r["type"])
         stats[(src, r["type"])][v] += 1
-        stats[("ВСЕГО", "")][v] += 1
+        stats[("TOTAL", "")][v] += 1
 
         con.execute(
             """INSERT INTO eval_results
@@ -110,33 +110,33 @@ def main():
              r["type"], src, res.get("route"), res.get("cost_usd", 0.0), ms))
 
         if v == "wrong" and len(misses) < a.show:
-            misses.append(f"  {src:16s} {r['type']:6s} ждали {str(r['answer']):>9s} "
-                          f"получили {str(got):>9s}  {r['question'][:62]}")
+            misses.append(f"  {src:16s} {r['type']:6s} want {str(r['answer']):>9s} "
+                          f"got {str(got):>9s}  {r['question'][:62]}")
 
     con.commit()
 
-    print(f"\nпрогон {run_id} · {len(rows)} вопросов · {time.time()-t0:.0f}s "
+    print(f"\nrun {run_id} - {len(rows)} questions - {time.time()-t0:.0f}s "
           f"· ${cost:.4f}\n")
-    print(f"{'источник':18s}{'тип':8s}{'верно':>7s}{'неверно':>9s}"
-          f"{'отказ':>8s}{'проп.':>7s}{'точность':>10s}")
+    print(f"{'source':18s}{'type':8s}{'right':>7s}{'wrong':>9s}"
+          f"{'refused':>8s}{'skip':>7s}{'accuracy':>10s}")
     for (src, qt), c in sorted(stats.items()):
         n = c["correct"] + c["wrong"] + c["refused"]
         acc = f"{c['correct']*100/n:.0f}%" if n else "—"
         print(f"{src:18s}{qt:8s}{c['correct']:7d}{c['wrong']:9d}"
               f"{c['refused']:8d}{c['skipped']:7d}{acc:>10s}")
 
-    tot = stats[("ВСЕГО", "")]
+    tot = stats[("TOTAL", "")]
     n = tot["correct"] + tot["wrong"] + tot["refused"]
     if n:
-        print(f"\nдоля неверных ответов: {tot['wrong']*100/n:.1f}%  "
-              f"(вот это число и называем жюри)")
-        print(f"покрытие: ответили на {(tot['correct']+tot['wrong'])*100/n:.0f}%, "
-              f"отказались в {tot['refused']*100/n:.0f}%")
+        print(f"\nwrong-answer rate: {tot['wrong']*100/n:.1f}%  "
+              f"(this is the number we quote)")
+        print(f"coverage: answered {(tot['correct']+tot['wrong'])*100/n:.0f}%, "
+              f"refused {tot['refused']*100/n:.0f}%")
 
     if misses:
-        print("\nпромахи:")
+        print("\nmisses:")
         print("\n".join(misses))
-        print(f"\nвсе промахи: sqlite3 {a.db} \"SELECT * FROM eval_results "
+        print(f"\nall misses: sqlite3 {a.db} \"SELECT * FROM eval_results "
               f"WHERE run_id='{run_id}' AND verdict='wrong'\"")
 
 

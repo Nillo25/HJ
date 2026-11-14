@@ -1,23 +1,23 @@
-"""IFC -> elements. Свой разбор STEP, без ifcopenshell.
+"""IFC -> elements. Hand-rolled STEP reader, no ifcopenshell.
 
-Колёса ifcopenshell собраны под glibc новее, чем в этой машине, поэтому
-читаем формат сами. Нам нужны только типы сущностей, привязка к этажам и
-наборы количеств — это обычный текст ISO-10303-21:
+The ifcopenshell wheels are built against a newer glibc than this machine
+has, so we read the format ourselves. We only need entity types, storey
+containment and quantity sets, and that is plain ISO-10303-21 text:
 
     #123=IFCDOOR('2O2Fr$t4X7Zf8NOew3FNrX',#5,'Door-01',$,...);
 
-Проверено на превью (сверено с их ответами):
-  стены   = IFCWALL + IFCWALLSTANDARDCASE   (99 + 747 = 846)
-  сантех. = IFCFLOWTERMINAL                  (119; IFCSANITARYTERMINAL даёт 0)
-  помещения привязаны к этажу через IFCRELAGGREGATES, а двери и стены —
-  через IFCRELCONTAINEDINSPATIALSTRUCTURE. Нужны обе связи.
+Verified against their answers on the preview:
+  walls    = IFCWALL + IFCWALLSTANDARDCASE   (99 + 747 = 846)
+  fixtures = IFCFLOWTERMINAL                 (119; IFCSANITARYTERMINAL gives 0)
+  spaces attach to a storey through IFCRELAGGREGATES, while doors and walls
+  use IFCRELCONTAINEDINSPATIALSTRUCTURE. Both links are needed.
 """
 import json
 import re
 
 from labels import norm, subtype_for
 
-# тип вопроса -> классы IFC
+# question subject -> IFC classes
 TYPES = {
     "door":      {"IFCDOOR"},
     "window":    {"IFCWINDOW"},
@@ -43,7 +43,7 @@ QTY = {"IFCELEMENTQUANTITY", "IFCQUANTITYAREA", "IFCQUANTITYVOLUME",
 KEEP = set(CLASS2TYPE) | REL | QTY | GEOM | {"IFCBUILDINGSTOREY"}
 
 HEAD = re.compile(r"^#(\d+)\s*=\s*([A-Z0-9_]+)\s*\(", re.I)
-# \X2\00D6\X0\ -> Ö ; \S\A ->ä и прочее оставляем как есть
+# \X2\00D6\X0\ -> O-umlaut, \X\E6 -> ae-ligature
 UNI = re.compile(r"\\X2\\((?:[0-9A-Fa-f]{4})+)\\X0\\")
 UNI1 = re.compile(r"\\X\\([0-9A-Fa-f]{2})")
 
@@ -56,7 +56,7 @@ def _unescape(s: str) -> str:
 
 
 def split_args(body: str) -> list[str]:
-    """Разбивает список аргументов по запятым верхнего уровня."""
+    """Split an argument list on top-level commas."""
     out, depth, cur, q = [], 0, [], False
     i = 0
     while i < len(body):
@@ -101,7 +101,7 @@ def _refs(a: str) -> list[int]:
 
 
 def read(path: str):
-    """-> (ents, counts). ents: {id: (TYPE, [args])} только для нужных типов."""
+    """-> (ents, counts). ents: {id: (TYPE, [args])} for wanted types only."""
     ents, counts = {}, {}
     buf = ""
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -116,7 +116,7 @@ def read(path: str):
                 break
             buf += t
             if not buf.endswith(";"):
-                continue                      # сущность перенесена на строки
+                continue                      # entity wrapped across lines
             stmt, buf = buf[:-1], ""
             m = HEAD.match(stmt)
             if not m:
@@ -132,7 +132,7 @@ NUM = re.compile(r"-?\d+\.?\d*(?:[eE][-+]?\d+)?")
 
 
 def _unit_scale(ents) -> float:
-    """Масштаб длины файла в метры. Площади у них бывают в мм²."""
+    """File length unit in metres. Some models are drawn in millimetres."""
     for cls, a in ents.values():
         if cls != "IFCSIUNIT":
             continue
@@ -148,7 +148,7 @@ def _unit_scale(ents) -> float:
 
 
 def _points(ents, pid, seen=None):
-    """Точки контура: спускаемся по ссылкам до IfcCartesianPoint."""
+    """Contour points: follow references down to IfcCartesianPoint."""
     seen = seen if seen is not None else set()
     if pid in seen or pid not in ents:
         return []
@@ -172,11 +172,11 @@ def _shoelace(p) -> float:
 
 
 def _footprint_area(ents, eid, scale) -> float | None:
-    """Площадь помещения по контуру FootPrint.
+    """Room area from the FootPrint contour.
 
-    ПРОВЕРЕНО: 200 из 200 помещений esplanades совпали с их ответами.
-    Нужно потому, что у части моделей наборов количеств нет вовсе, а
-    подписанная площадь округлена («5,8» против настоящих 5,76).
+    VERIFIED: 200 of 200 esplanades spaces matched their answers.
+    Needed because some models carry no quantity sets at all, and the
+    printed label is rounded ("5,8" against the real 5.76).
     """
     cls, a = ents.get(eid, (None, []))
     if cls is None:
@@ -197,7 +197,7 @@ def parse(path: str, dict_rows: dict):
     ents, counts = read(path)
     scale = _unit_scale(ents)
 
-    # --- этажи -----------------------------------------------------------
+    # --- storeys ---------------------------------------------------------
     storeys = {}
     for eid, (cls, a) in ents.items():
         if cls != "IFCBUILDINGSTOREY":
@@ -210,9 +210,9 @@ def parse(path: str, dict_rows: dict):
     for i, k in enumerate(order):
         storeys[k]["ord"] = i
 
-    # --- привязка элементов к этажам -------------------------------------
-    # двери, стены, окна: ContainedInSpatialStructure
-    # помещения: Aggregates (этаж СОСТОИТ из помещений)
+    # --- element to storey -----------------------------------------------
+    # doors, walls, windows: ContainedInSpatialStructure
+    # spaces: Aggregates (a storey IS COMPOSED OF its spaces)
     owner: dict[int, int] = {}
     for cls, a in ents.values():
         if cls == "IFCRELCONTAINEDINSPATIALSTRUCTURE" and len(a) > 5:
@@ -226,7 +226,7 @@ def parse(path: str, dict_rows: dict):
                 for e in _refs(a[5]):
                     owner.setdefault(e, st[0])
 
-    # --- количества (Qto) -------------------------------------------------
+    # --- quantities (Qto) --------------------------------------------------
     # IfcRelDefinesByProperties -> IfcElementQuantity -> IfcQuantityArea/...
     qvals: dict[int, dict] = {}
     for cls, a in ents.values():
@@ -264,7 +264,7 @@ def parse(path: str, dict_rows: dict):
                 return v[k]
         return None
 
-    # --- элементы ---------------------------------------------------------
+    # --- elements ----------------------------------------------------------
     out = []
     for eid, (cls, a) in ents.items():
         t = CLASS2TYPE.get(cls)
@@ -274,8 +274,8 @@ def parse(path: str, dict_rows: dict):
         name = _str(a[2]) if len(a) > 2 else None
         longname = _str(a[7]) if len(a) > 7 else None
 
-        # у помещения два имени: Name — номер («4-3»), LongName — название
-        # («TUALETTRUUM»). В вопросах они склеены: «TUALETTRUUM (34-3)».
+        # a space has two names: Name is the number ("4-3"), LongName is the
+        # name ("TUALETTRUUM"). Questions join them: "TUALETTRUUM (4-3)".
         if t == "room" and longname and name:
             label = f"{longname} ({name})"
         else:
@@ -293,7 +293,7 @@ def parse(path: str, dict_rows: dict):
                                  "long_name": longname}, ensure_ascii=False),
         }
         if t == "room":
-            # сначала посчитанное количество, иначе считаем контур сами
+            # prefer a stored quantity, else measure the contour ourselves
             row["area"] = pick(eid, AREA) or _footprint_area(ents, eid, scale)
             row["volume"] = pick(eid, VOL)
         elif t in ("wall", "beam"):

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Индексация датасета Stoa в SQLite.
+"""Index the Stoa dataset into SQLite.
 
-    python index.py <папка датасета> [--db app.db] [--only swiss_dwellings]
+    python index.py <dataset folder> [--db app.db] [--only swiss_dwellings]
 
-Кладёт в базу ВСЁ, что нашёл в файле, независимо от вопросов.
-Файлы без вопросов (europeana, finna, habs, wikimedia) и форматы без
-вопросов и без пользы (svg, dwg, jpg) пропускает.
+Stores EVERYTHING found in a file, regardless of the questions.
+Sources with no questions (europeana, finna, habs, wikimedia) and formats
+with neither questions nor use as a source (svg, dwg, jpg) are skipped.
 """
 import argparse
 import hashlib
@@ -20,7 +20,7 @@ import labels as L
 IGNORE_SOURCES = {"europeana", "finna", "habs", "wikimedia"}
 IGNORE_EXT = {".svg", ".dwg", ".jpg", ".jpeg", ".md", ".ds_store"}
 
-# что из чего отвечаем: формат -> роль
+# what answers what: format -> role
 ROLE = {".dxf": "truth", ".ifc": "truth", ".pdf": "truth", ".png": "display"}
 
 
@@ -35,15 +35,15 @@ def sha256(path, buf=1 << 20):
 def capabilities(formats: set) -> dict:
     if ".dxf" in formats or ".ifc" in formats:
         return {"counts": "exact", "areas": "exact", "text": "exact",
-                "reason": "есть геометрия (DXF/IFC)"}
+                "reason": "geometry available (DXF/IFC)"}
     if ".pdf" in formats:
         return {"counts": "exact", "areas": "none", "text": "exact",
-                "reason": "векторный PDF: текст и таблицы, геометрии комнат нет"}
+                "reason": "vector PDF: text and tables, no room geometry"}
     if ".png" in formats:
         return {"counts": "estimated", "areas": "none", "text": "estimated",
-                "reason": "только растр, читаем зрением"}
+                "reason": "raster only, read by vision"}
     return {"counts": "none", "areas": "none", "text": "none",
-            "reason": "формат не поддержан"}
+            "reason": "format not supported"}
 
 
 def collect(root: str, only: str | None):
@@ -71,7 +71,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("root")
     ap.add_argument("--db", default="app.db")
-    ap.add_argument("--only", default=None, help="один источник, напр. swiss_dwellings")
+    ap.add_argument("--only", default=None, help="single source, e.g. swiss_dwellings")
     ap.add_argument("--limit", type=int, default=0)
     a = ap.parse_args()
 
@@ -84,7 +84,7 @@ def main():
     groups = collect(a.root, a.only)
     if a.limit:
         groups = dict(list(groups.items())[: a.limit])
-    print(f"чертежей к разбору: {len(groups)}")
+    print(f"drawings to parse: {len(groups)}")
 
     unknown: set[str] = set()
     t0 = time.time()
@@ -106,7 +106,7 @@ def main():
                 print(f"  ! {p}: {e}")
                 continue
             if con.execute("SELECT 1 FROM files WHERE sha256=?", (digest,)).fetchone():
-                continue          # тот же файл уже разобран
+                continue          # same file already parsed
             fid = con.execute(
                 "INSERT INTO files(drawing_id, path, sha256, format, role) VALUES (?,?,?,?,?)",
                 (did, p, digest, ext.lstrip("."), ROLE.get(ext, "ignored"))).lastrowid
@@ -127,7 +127,7 @@ def main():
                         con.execute("UPDATE files SET role='display' WHERE id=?", (fid,))
                         continue
                 else:
-                    continue      # png — отдельным проходом, см. index_raster.py
+                    continue      # png: separate pass, see index_raster.py
             except Exception as e:
                 con.execute("UPDATE files SET status='failed', note=? WHERE id=?",
                             (f"{type(e).__name__}: {e}", fid))
@@ -177,11 +177,11 @@ def main():
         out = os.path.join(os.path.dirname(a.db) or ".", "unknown_labels.txt")
         with open(out, "w", encoding="utf-8") as f:
             f.write("\n".join(sorted(unknown)))
-        print(f"\nнеизвестных подписей: {len(unknown)} -> {out}")
-        print("разобрать пакетно: python resolve_labels.py")
+        print(f"\nunknown labels: {len(unknown)} -> {out}")
+        print("resolve them in one batch: python resolve_labels.py")
 
     n_el = con.execute("SELECT COUNT(*) FROM elements").fetchone()[0]
-    print(f"\nготово: чертежей {done}, ошибок {failed}, элементов {n_el}, "
+    print(f"\ndone: drawings {done}, failed {failed}, elements {n_el}, "
           f"{time.time()-t0:.0f}s")
     for row in con.execute(
             "SELECT type, COUNT(*) FROM elements GROUP BY type ORDER BY 2 DESC"):
