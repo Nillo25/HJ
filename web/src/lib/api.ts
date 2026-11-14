@@ -82,13 +82,24 @@ export const ask = (drawingId: string, question: string) =>
     body: JSON.stringify({ drawing_id: drawingId, question }),
   }).then(r => j<Answer>(r));
 
-export async function upload(kind: Kind, file: File): Promise<string> {
-  const fd = new FormData();
-  fd.append('kind', kind);
-  fd.append('files', file);
-  const res = await fetch('/api/upload', { method: 'POST', body: fd });
-  if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `${res.status} ${res.statusText}`);
-  return ((await res.json()) as { jobId: string }).jobId;
+/** Upload with progress (fetch cannot report it): resolves with the job id. */
+export function upload(kind: Kind, file: File, onProgress?: (fraction: number) => void): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', '/api/upload');
+    x.upload.onprogress = e => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
+    x.onload = () => {
+      let body: { jobId?: string; error?: string } = {};
+      try { body = JSON.parse(x.responseText); } catch { /* not JSON */ }
+      if (x.status >= 200 && x.status < 300 && body.jobId) resolve(body.jobId);
+      else reject(new Error(body.error ?? `${x.status} ${x.statusText}`));
+    };
+    x.onerror = () => reject(new Error('Network error: the server did not answer.'));
+    const fd = new FormData();
+    fd.append('kind', kind);
+    fd.append('files', file);
+    x.send(fd);
+  });
 }
 
 export type Job = { stage: string; log: string[]; finished: boolean; drawings: Drawing[] };

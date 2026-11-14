@@ -185,7 +185,7 @@ export function PlanViewer({ drawingId, evidence }: { drawingId: string; evidenc
         )}
         <svg ref={svgRef} viewBox={vb.join(' ')} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
           onDoubleClick={() => setView(null)} style={{ touchAction: 'none', cursor: drag.current ? 'grabbing' : 'grab' }}
-          className="max-h-[32rem] w-full rounded-md border border-slate-200 bg-white" role="img" aria-label="Plan with the found objects marked; scroll to zoom, drag to pan, double click to reset">
+          className="h-[68vh] min-h-[22rem] w-full rounded-md border border-slate-200 bg-white" role="img" aria-label="Plan with the found objects marked; scroll to zoom, drag to pan, double click to reset">
           {plan.background && <image href={plan.background} x={0} y={0} width={w} height={h} opacity={anyFound ? 0.55 : 1} />}
           {layers.filter(k => !off.has(k)).map(k => (
             <g key={k} opacity={anyFound ? 0.4 : 1}>

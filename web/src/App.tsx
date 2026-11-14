@@ -1,20 +1,23 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import examples from './examples.json';
-import { ask, getDrawing, getDrawings, type Answer, type Drawing } from './lib/api';
-import { AnswerCard } from './components/AnswerCard';
-import { DrawingList } from './components/DrawingList';
-import { EvidenceTable } from './components/EvidenceTable';
+import { ask, getDrawing, type Answer, type Drawing } from './lib/api';
 import { AccuracyPanel } from './components/AccuracyPanel';
+import { AnswerCard } from './components/AnswerCard';
+import { EvidenceTable } from './components/EvidenceTable';
+import { FilePanel } from './components/FilePanel';
 import { PlanViewer } from './components/PlanViewer';
-import { UploadPanel } from './components/UploadPanel';
 import { UsageBar } from './components/UsageBar';
-import { Button, Card, CardBody, Input } from './components/ui';
+import { Button, Card, CardBody, CardHeader, CardTitle, Input } from './components/ui';
 
 type Ex = { q: string; type: string; drawing: string };
 const EXAMPLES = examples as Record<string, Ex[]>;
+const KEY = 'northline.current';
+
+const remember = (id: string | null) => {
+  try { id ? localStorage.setItem(KEY, id) : localStorage.removeItem(KEY); } catch { /* storage may be blocked */ }
+};
 
 export default function App() {
-  const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [current, setCurrent] = useState<Drawing | null>(null);
   const [question, setQuestion] = useState('');
   const [asked, setAsked] = useState<string | null>(null);
@@ -22,28 +25,32 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [usageKey, setUsageKey] = useState(0);
 
-  const refresh = useCallback(() => getDrawings().then(setDrawings).catch(() => setDrawings([])), []);
-  useEffect(() => { refresh(); }, [refresh]);
-
-  const select = useCallback(async (d: Drawing) => {
-    setAnswer(null);
-    setAsked(null);
-    setCurrent(d);
-    try { setCurrent(await getDrawing(d.id)); } catch { /* keep the list row */ }
+  // after a reload, come back to the file that was open (uploads live on the server for a day)
+  useEffect(() => {
+    let id: string | null = null;
+    try { id = localStorage.getItem(KEY); } catch { /* ignore */ }
+    if (id) getDrawing(id).then(setCurrent).catch(() => remember(null));
   }, []);
 
-  const showPlan = current?.kind === 'dxf' || current?.kind === 'pdf' || current?.kind === 'ifc';
+  function loaded(d: Drawing) {
+    setCurrent(d);
+    remember(d.id);
+    setQuestion('');
+    setAsked(null);
+    setAnswer(null);          // a new file starts a new conversation
+  }
+
   // examples written for this very file first; otherwise generic ones of the same kind (no model names in them)
   const chips = useMemo(() => {
     if (!current) return [];
     const all = [...(EXAMPLES[current.source] ?? []), ...(current.kind === 'ifc' ? EXAMPLES.ifc_bench ?? [] : [])];
     const own = all.filter(e => e.drawing === current.name);
-    if (own.length) return own.slice(0, 6);
-    return all.filter(e => !/['"“”„«»]/.test(e.q)).slice(0, 6);
+    if (own.length) return own.slice(0, 5);
+    return all.filter(e => !/['"“”„«»]/.test(e.q)).slice(0, 5);
   }, [current]);
 
   async function run(q: string) {
-    if (!current || !q.trim()) return;
+    if (!current || !q.trim() || loading) return;
     setAsked(q);
     setQuestion(q);
     setAnswer(null);
@@ -57,31 +64,33 @@ export default function App() {
       setUsageKey(k => k + 1);
     }
   }
-
   const onSubmit = (e: FormEvent) => { e.preventDefault(); run(question); };
+
+  const hasPlan = current && current.kind !== 'png';
+  const evidence = answer?.evidence ?? [];
+
   return (
-    <div className="mx-auto max-w-7xl px-4 py-5">
+    <div className="mx-auto max-w-[1500px] px-4 py-5">
       <header className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">North Line</h1>
-          <p className="text-sm text-slate-500">Ask a question about a drawing. Every answer shows what it was computed from.</p>
+          <p className="text-sm text-slate-500">Upload a drawing, ask a question, see the answer marked on the drawing.</p>
         </div>
         <UsageBar refreshKey={usageKey} />
       </header>
 
-      <div className="grid gap-5 lg:grid-cols-[20rem_1fr]">
-        <aside className="space-y-5">
-          <UploadPanel onReady={async ds => { await refresh(); if (ds[0]) select(ds[0]); }} />
-          <DrawingList drawings={drawings} selected={current?.id ?? null} onSelect={select} />
-        </aside>
+      <div className="grid gap-5 lg:grid-cols-[27rem_minmax(0,1fr)]">
+        {/* left: the file, the question, the result */}
+        <div className="min-w-0 space-y-5">
+          <FilePanel current={current} onLoaded={loaded} />
 
-        <main className="min-w-0 space-y-5">
           <Card>
+            <CardHeader><CardTitle>2 · Question</CardTitle></CardHeader>
             <CardBody className="space-y-3">
               <form onSubmit={onSubmit} className="flex gap-2">
                 <label htmlFor="q" className="sr-only">Question</label>
                 <Input id="q" value={question} onChange={e => setQuestion(e.target.value)} disabled={!current}
-                  placeholder={current ? `Ask about “${current.name}”` : 'Select or upload a drawing first'} autoComplete="off" />
+                  placeholder={current ? 'Ask in any language' : 'Upload a file first'} autoComplete="off" />
                 <Button type="submit" disabled={!current || loading || !question.trim()}>Ask</Button>
               </form>
               {chips.length > 0 && (
@@ -100,23 +109,30 @@ export default function App() {
           <AnswerCard question={asked} answer={answer} loading={loading}
             onChoose={alt => setAnswer(prev => prev && { ...prev, status: (alt.confidence ?? 1) < 1 ? 'estimated' : 'answered', answer: alt.answer, unit: alt.unit, evidence: alt.evidence, alternatives: undefined, confidence: alt.confidence ?? 1 })} />
 
-          {answer && answer.status !== 'refused' && answer.status !== 'needs_clarification' && (
-            <div className={showPlan ? 'grid gap-5 xl:grid-cols-2' : ''}>
-              <EvidenceTable answer={answer} />
-              {showPlan && current && <PlanViewer drawingId={current.id} evidence={answer?.evidence ?? []} />}
-            </div>
-          )}
+          {answer && answer.status !== 'refused' && answer.status !== 'needs_clarification' && <EvidenceTable answer={answer} />}
+        </div>
+
+        {/* right: the drawing itself, with what was asked marked on it */}
+        <div className="min-w-0 space-y-5 lg:sticky lg:top-4 lg:self-start">
+          {hasPlan && <PlanViewer key={current.id} drawingId={current.id} evidence={evidence} />}
           {current?.kind === 'png' && (
             <Card>
+              <CardHeader><CardTitle>Drawing</CardTitle></CardHeader>
               <CardBody className="space-y-2">
-                <img src={`/api/drawings/${current.id}/image`} alt="Uploaded raster plan" className="max-h-[32rem] w-full rounded-md border border-slate-200 bg-white object-contain" />
+                <img src={`/api/drawings/${current.id}/image`} alt="Uploaded raster plan" className="max-h-[70vh] w-full rounded-md border border-slate-200 bg-white object-contain" />
                 <p className="text-xs text-slate-500">Raster plans are shown as uploaded. Reading objects from pixels is not supported yet, so questions are refused with a reason.</p>
               </CardBody>
             </Card>
           )}
-          {!answer && showPlan && current && <PlanViewer drawingId={current.id} evidence={[]} />}
+          {!current && (
+            <Card>
+              <CardBody className="flex min-h-48 items-center justify-center text-sm text-slate-500">
+                Your drawing appears here once the file is parsed.
+              </CardBody>
+            </Card>
+          )}
           {!answer && <AccuracyPanel />}
-        </main>
+        </div>
       </div>
     </div>
   );

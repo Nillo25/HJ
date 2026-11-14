@@ -79,6 +79,8 @@ export function AnswerCard({ question, answer, loading, onChoose }: { question: 
           </div>
         )}
 
+        {answer && !loading && <TokenStrip answer={answer} />}
+
         {answer && (
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 border-t border-slate-100 pt-3 text-xs text-slate-600 sm:grid-cols-4">
             <div>
@@ -113,5 +115,28 @@ export function AnswerCard({ question, answer, loading, onChoose }: { question: 
         )}
       </CardBody>
     </Card>
+  );
+}
+
+/** What this one question cost: inference is judged, so it is never hidden. */
+function TokenStrip({ answer }: { answer: Answer }) {
+  const used = answer.usage ?? [];
+  const inT = used.reduce((n, u) => n + u.input_tokens, 0);
+  const outT = used.reduce((n, u) => n + u.output_tokens, 0);
+  const free = inT + outT === 0;
+  return (
+    <div className={free ? 'rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-900' : 'rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-800'}
+      aria-label="Tokens spent on this question">
+      {free ? (
+        <><b className="tabular-nums">0 tokens</b> spent: answered from the parsed file, no model was called.</>
+      ) : (
+        <>
+          <b className="tabular-nums">{(inT + outT).toLocaleString('en-US')} tokens</b> spent
+          <span className="tabular-nums text-slate-600"> ({inT.toLocaleString('en-US')} in + {outT.toLocaleString('en-US')} out)</span>
+          {' · '}<b className="tabular-nums">${(answer.cost_usd ?? 0).toFixed(5)}</b>
+          <span className="text-slate-500"> · {used.map(u => u.model).filter((m, i, a) => a.indexOf(m) === i).join(', ')}</span>
+        </>
+      )}
+    </div>
   );
 }

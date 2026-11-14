@@ -165,7 +165,7 @@ const Query = z.discriminatedUnion('fn', [
   z.object({ fn: z.literal('report') }).describe('free-form question about a whole IFC model: software, levels, space breakdown, summary'),
   z.object({
     fn: z.literal('unsupported'),
-    reason: z.string().describe('почему вопрос не ложится ни на одну функцию'),
+    reason: z.string().describe('one short sentence IN ENGLISH: why no function can answer this question'),
   }),
 ]);
 
@@ -263,7 +263,7 @@ export async function ask(d: Session, question: string) {
       system:
         'Ты превращаешь вопрос о строительном чертеже в вызов функции. ' +
         'Отвечай только выбором функции и аргументов, ничего не вычисляй. ' +
-        'Вопрос может быть на любом языке. ' +
+        'Вопрос может быть на любом языке. Поле reason (если нужно) пиши по-английски. ' +
         'Если вопрос не ложится ни на одну функцию — выбирай unsupported. ' +
         'Если вопрос просит сумму, разность или сочетание РАЗНЫХ типов объектов («стены и колонны вместе»), ' +
         'одной функцией его не посчитать: выбирай unsupported, не отвечай только на часть. ' +
@@ -294,7 +294,7 @@ export async function ask(d: Session, question: string) {
   if (parsed.fn === 'unsupported' && d.meta.kind === 'ifc') return report(d, question, t0, used, cost, route);
 
   if (parsed.fn === 'unsupported') {
-    return { status: 'refused', reason: parsed.reason ?? 'тип вопроса не поддержан',
+    return { status: 'refused', reason: parsed.reason ?? 'this kind of question is not supported',
              missing: 'template', route, cost_usd: cost, usage: used,
              latency_ms: Date.now() - t0 };
   }
