@@ -181,7 +181,13 @@ app.post('/api/ask', async (c) => {
 /* ------------------------------------------------------- usage and eval */
 
 app.get('/api/usage', (c) => c.json(usageSnapshot()));
-app.get('/api/eval/latest', (c) => c.json({ rows: latestEval() }));
+// accuracy summary written by indexer/bench.py (--summary); EVAL_JSON points at it
+app.get('/api/eval/latest', (c) => {
+  const f = process.env.EVAL_JSON ?? path.resolve('accuracy.json');
+  let summary = null;
+  try { summary = JSON.parse(readFileSync(f, 'utf8')); } catch { /* no benchmark has been run here */ }
+  return c.json({ summary, rows: latestEval() });
+});
 
 /* ------------------------------------------------- upload and indexing */
 

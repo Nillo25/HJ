@@ -4,6 +4,7 @@ import { ask, getDrawing, getDrawings, type Answer, type Drawing } from './lib/a
 import { AnswerCard } from './components/AnswerCard';
 import { DrawingList } from './components/DrawingList';
 import { EvidenceTable } from './components/EvidenceTable';
+import { AccuracyPanel } from './components/AccuracyPanel';
 import { PlanViewer } from './components/PlanViewer';
 import { UploadPanel } from './components/UploadPanel';
 import { UsageBar } from './components/UsageBar';
@@ -97,7 +98,7 @@ export default function App() {
           </Card>
 
           <AnswerCard question={asked} answer={answer} loading={loading}
-            onChoose={alt => setAnswer(prev => prev && { ...prev, status: 'answered', answer: alt.answer, unit: alt.unit, evidence: alt.evidence, alternatives: undefined, confidence: 1 })} />
+            onChoose={alt => setAnswer(prev => prev && { ...prev, status: (alt.confidence ?? 1) < 1 ? 'estimated' : 'answered', answer: alt.answer, unit: alt.unit, evidence: alt.evidence, alternatives: undefined, confidence: alt.confidence ?? 1 })} />
 
           {answer && answer.status !== 'refused' && answer.status !== 'needs_clarification' && (
             <div className={showPlan ? 'grid gap-5 xl:grid-cols-2' : ''}>
@@ -114,6 +115,7 @@ export default function App() {
             </Card>
           )}
           {!answer && showPlan && current && <PlanViewer drawingId={current.id} evidence={[]} />}
+          {!answer && <AccuracyPanel />}
         </main>
       </div>
     </div>

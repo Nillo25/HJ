@@ -29,7 +29,7 @@ export type Evidence = {
 
 export type UsageItem = { model: string; input_tokens: number; output_tokens: number; cost_usd: number };
 
-export type Alternative = { label: string; answer: number; unit?: string; evidence: Evidence[] };
+export type Alternative = { label: string; answer: number; unit?: string; confidence?: number; evidence: Evidence[] };
 
 export type Answer = {
   question?: string;

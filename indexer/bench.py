@@ -80,6 +80,7 @@ def main():
     ap.add_argument("--files", type=int, default=8, help="files sampled per source")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--summary", default=None, help="write the accuracy summary the UI shows (JSON)")
     ap.add_argument("--show", type=int, default=15)
     a = ap.parse_args()
     rnd = random.Random(a.seed)
@@ -186,6 +187,26 @@ def main():
     for model, (i, o, c, calls) in money.items():
         print(f"model {model}: {calls} calls, {i} in / {o} out tokens, ${c:.4f}"
               f"  (${c / max(calls, 1):.5f} per call)")
+    if a.summary:
+        by = collections.defaultdict(collections.Counter)
+        for rec in out:
+            by[(rec["source"], rec["type"])][rec["verdict"]] += 1
+        summary = {
+            "generated": time.strftime("%Y-%m-%d %H:%M"), "files": len(chosen), "questions": len(out),
+            "scored": n, "right": tot["right"], "wrong": tot["wrong"], "refused": tot["refused"],
+            "wrong_rate": round(tot["wrong"] / n, 4) if n else None,
+            "coverage": round((tot["right"] + tot["wrong"]) / n, 4) if n else None,
+            "without_model": round(sum(1 for r in out if r["route"] != "llm") / max(len(out), 1), 4),
+            "cost_usd": round(sum(r["cost"] or 0 for r in out), 4),
+            "cost_per_question_usd": round(sum(r["cost"] or 0 for r in out) / max(len(out), 1), 5),
+            "models": [{"model": m, "calls": c, "input_tokens": i, "output_tokens": o, "cost_usd": round(cost, 4)}
+                       for m, (i, o, cost, c) in money.items()],
+            "rows": [{"source": s_, "type": t_, "right": c["right"], "wrong": c["wrong"], "refused": c["refused"], "text": c["text"]}
+                     for (s_, t_), c in sorted(by.items())],
+        }
+        with open(a.summary, "w", encoding="utf-8") as fh:
+            json.dump(summary, fh, ensure_ascii=False, indent=1)
+        print("summary ->", a.summary)
     if misses:
         print("\nwrong answers:")
         print("\n".join(misses))

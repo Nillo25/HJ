@@ -111,6 +111,7 @@ def apartment_area(con, drawing, label, floor=None):
 # it. Checked on 3 plans: 16.52 + 16.21 = 32.73 and 24.0 + 20.72 + 22.0 + 24.15 = 90.87 were exactly the gaps.
 STUDIO_RE = __import__("re").compile(
     r"^\s*(?:whg|wohnung|app|appartamento|appartement|apt|apartment)\.?\s*[A-Z]\b", __import__("re").I)
+FIXTURE_MIN_CONFIDENCE = 0.8
 STUDIO_MAX_M2 = 30.0                      # a bigger unit is a flat with several rooms, not a bedroom
 BEDROOM_WORDS = {"zimmer", "stanza", "pièce", "piece", "chambre", "camera", "room", "locale", "schlafzimmer"}
 
@@ -521,6 +522,14 @@ def execute(con, drawing: str, fn: str, kw: dict, plan_floor=None) -> dict:
     unit = ("m2" if fn in ("room_area", "apartment_area")
             or kw.get("field") == "area" else "count")
     conf = min([r["confidence"] for r in rows], default=1.0) if rows else 1.0
+    if fn == "count_objects" and kw.get("type") == "fixture" and kw.get("subtype") and conf < FIXTURE_MIN_CONFIDENCE:
+        # Fixture kinds in a DXF are guessed from the outline size (8 of 34 counts matched the key on the preview set).
+        # A number that is mostly wrong is worse than none: the estimate is shown only when the user asks for it.
+        return {"status": "needs_clarification", "route": "cache", "cost_usd": 0.0, "fn": fn, "args": kw, "unit": "count",
+                "question": f"This DXF stores all fixtures on one layer without a type; the {kw['subtype']} count is guessed "
+                            "from outline sizes and is usually off. Show the estimate anyway?",
+                "alternatives": [{"label": f"Show the estimate ({round(conf * 100)}% confidence)", "answer": value, "unit": "count",
+                                  "confidence": conf, "evidence": evidence_of(rows, con)}]}
     return {"status": "answered" if conf >= 1.0 else "estimated",
             "answer": round(value, 2) if unit == "m2" else value,
             "unit": unit, "confidence": conf, "route": "cache",
