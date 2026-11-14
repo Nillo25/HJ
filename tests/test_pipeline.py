@@ -589,6 +589,18 @@ def _window_sheet():
             cv2.line(img, (x0, y), (x1, y), (215, 215, 215), 1)
     cv2.line(img, (200, 200), (300, 200), (150, 150, 150), 1)           # стол — не окно
     cv2.line(img, (200, 206), (300, 206), (150, 150, 150), 1)
+    # участок сплошной стены над проёмом: светлая кайма сверху и притолока снизу — не окно
+    cv2.rectangle(img, (420, 30), (470, 38), (0, 0, 0), -1)
+    cv2.rectangle(img, (400, 28), (419, 40), (0, 0, 0), -1)
+    cv2.rectangle(img, (471, 28), (490, 40), (0, 0, 0), -1)
+    cv2.line(img, (420, 29), (470, 29), (180, 180, 180), 1)
+    cv2.line(img, (420, 41), (470, 41), (180, 180, 180), 1)
+    # лестничный марш на серой заливке между стенками: ступени через 3 px — не окна
+    cv2.rectangle(img, (425, 160), (469, 260), (205, 205, 205), -1)
+    cv2.rectangle(img, (420, 160), (424, 260), (0, 0, 0), -1)
+    cv2.rectangle(img, (470, 160), (474, 260), (0, 0, 0), -1)
+    for y in range(165, 256, 3):
+        cv2.line(img, (425, y), (469, y), (120, 120, 120), 1)
     return img
 
 
@@ -610,3 +622,30 @@ def test_glazing_windows_join_model_windows():
     assert info["added"] == 2 and info["confirmed"] == ["win1"]
     a = count(sc, "window")
     assert a.answer == 3 and a.confidence == "medium" and "остеклен" in a.note
+
+
+def test_rectify_room_snaps_ragged_model_contour_to_walls():
+    import cv2
+    import numpy as np
+    from fp.rooms_cv import rectify_room
+    img = np.full((300, 400), 255, np.uint8)
+    cv2.rectangle(img, (50, 50), (350, 250), 0, 6)                     # стены комнаты 300×200
+    # контур модели: заходит за правую стену ступенькой и не доходит до верхней
+    ragged = [[56, 60], [330, 60], [362, 120], [362, 160], [344, 165], [344, 244], [56, 244]]
+    r = rectify_room(img, ragged, 50.0)
+    assert r is not None
+    xs, ys = [p[0] for p in r], [p[1] for p in r]
+    assert abs(min(xs) - 54) <= 2 and abs(max(xs) - 346) <= 2 and abs(min(ys) - 54) <= 2 and abs(max(ys) - 246) <= 2
+    l_shape = [[56, 56], [344, 56], [344, 120], [150, 120], [150, 244], [56, 244]]   # Г-образный — не трогаем
+    assert rectify_room(img, l_shape, 50.0) is None
+
+
+def test_count_falls_back_to_inventory_when_model_finds_none(monkeypatch):
+    from fp import query
+    from fp.scene import Scene
+    sc = Scene.build("x", 500, 500, [])
+    sc.meta["inventory"] = {"windows": 96, "doors": 1}
+    monkeypatch.setattr(query, "ROUTE", {"window": "yolo", "door": "yolo"})
+    a = query.count(sc, "window")
+    assert a.answer == 96 and a.confidence == "low" and "описи" in a.note
+    assert query.count(sc, "door").answer == 0          # опись видит одну — это не повод отвечать по ней

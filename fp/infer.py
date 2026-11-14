@@ -35,9 +35,10 @@ def simplify(poly: np.ndarray, cls: str) -> list:
 
 
 ARC_MIN_PPM = 33.0  # двери по дугам — только если дверь 0.6 м на листе не меньше 20 px
+WALL_ROOMS_MIN_PPM = 20.0  # помещения по стенам (рамки от ИИ) — только если комната 3 м на листе ≥ 60 px
 
 # менять при правках разбора, влияющих на сцену: повторная загрузка того же файла тогда разберёт его заново
-PIPELINE_VERSION = "2026-11-14.glazing"
+PIPELINE_VERSION = "2026-11-14.dorm-fixes"
 
 THRESHOLDS = json.loads((Path(__file__).parent / "thresholds.json").read_text())
 
@@ -236,6 +237,22 @@ def analyze_sheet(img: np.ndarray, sc: Scene) -> Scene:
             sc.rooms = [r for r in sc.rooms if r.id not in small]
             sc.meta["tiny_rooms_removed"] = small
             sc.assign_rooms()
+    # почти прямоугольные контуры модели — по линиям стен: маска у перегородок с дверями «гуляет»
+    # (заходит в соседнее помещение, даёт ступеньки), а от контура зависят площадь и плинтус
+    if est.get("px_per_m"):
+        from .rooms_cv import rectify_room
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
+        fixed = []
+        for r in sc.rooms:
+            if r.source != "yolo":
+                continue
+            new = rectify_room(gray, r.polygon, est["px_per_m"])
+            if new:
+                r.polygon = [[float(x), float(y)] for x, y in new]
+                fixed.append(r.id)
+        sc.meta["rooms_rectified"] = fixed
+        if fixed:
+            sc.assign_rooms()
     # зоны легенды: убираем старые, ищем цвета на плане (кроме самих образцов легенды)
     sc.objects = [o for o in sc.objects if o.cls != "zone"]
     legend = sheet.get("legend", [])
@@ -249,7 +266,9 @@ def analyze_sheet(img: np.ndarray, sc: Scene) -> Scene:
         sc.objects.append(Element(zid, "zone", z["polygon"], 0.8, source="legend"))
         sc.meta["zones"][zid] = {"label": z["label"], "color": z["color"]}
     # чертёжный лист без подписей помещений (трубопроводы, конструкции): помещения по стенам, рамки от VLM
-    if est.get("px_per_m") and tb.get("sheet_number") and not sheet.get("area_labels"):
+    # на мелком масштабе (общежитие A-2, 9.9 px/м: комната ~30 px) рамки ИИ неточны, и он объединяет
+    # повторяющиеся комнаты в одну рамку на крыло — помещения по стенам только от WALL_ROOMS_MIN_PPM
+    if (est.get("px_per_m") or 0) >= WALL_ROOMS_MIN_PPM and tb.get("sheet_number") and not sheet.get("area_labels"):
         rooms_by_walls(img, sc, sheet)
     # чертёжный лист (номер вида M-101A, A-2, C01): двери ещё и по дугам открывания — модель обучена на квартирах
     # и на таких листах видит их слабо. На квартирных планах дуги вредят (53.7% -> 36.6% на train+val eval_set),
@@ -331,7 +350,11 @@ def rooms_by_walls(img: np.ndarray, sc: Scene, sheet: dict) -> list[dict]:
     bar = barrier_mask(gray)
     ppm = sc.meta["px_per_m"]
     rows = []
+    dropped = []
     for rm in found:
+        if re.search(r"\btypical\b|\(typ", rm["name"], re.I):   # «Patient room (typical)» — рамка на группу комнат
+            dropped.append(rm["name"])
+            continue
         parts = rooms_from_bbox(gray, rm["bbox"], ppm, barrier=bar)
         for i, p in enumerate(parts, 1):
             name = rm["name"] if len(parts) == 1 else f"{rm['name']} · {i}"
@@ -344,6 +367,10 @@ def rooms_by_walls(img: np.ndarray, sc: Scene, sheet: dict) -> list[dict]:
         if all(a.intersection(Polygon(k["polygon"]).buffer(0)).area < 0.5 * min(a.area, Polygon(k["polygon"]).area)
                for k in keep):
             keep.append(r)
+    if not keep:  # всё отброшено — помещения модели остаются как есть
+        sc.meta["wall_rooms"] = []
+        sc.meta["wall_rooms_dropped"] = dropped
+        return []
     keep.sort(key=lambda r: reading_key(r["polygon"], sc.height))
     sc.meta["yolo_rooms_replaced"] = [r.id for r in sc.rooms]
     counters: dict = {}
@@ -358,6 +385,8 @@ def rooms_by_walls(img: np.ndarray, sc: Scene, sheet: dict) -> list[dict]:
         conf = {"medium": 0.75, "low": 0.5}[r["confidence"]]
         sc.rooms.append(Element(r["id"], cls, [[float(x), float(y)] for x, y in r["polygon"]], conf, source="vlm+walls"))
     sc.meta["wall_rooms"] = keep
+    if dropped:
+        sc.meta["wall_rooms_dropped"] = dropped
     sc.assign_rooms()
     return keep
 

@@ -301,7 +301,12 @@ def snap_room_bbox(gray: np.ndarray, bbox, px_per_m: float, min_cover: float = 0
         # ту, что лучше всего сочетает длину и близость к краю VLM
         pos_all = np.arange(lo, lo + len(prof))
         score = np.where(prof >= min_cover, prof * (1 - 0.6 * np.abs(pos_all - pos) / max(r, 1)), -1)
-        best = int(pos_all[score.argmax()])
+        k = int(score.argmax())
+        # толстая сплошная стена: от найденной грани идём к центру комнаты, пока линия не кончится, —
+        # пол начинается у внутренней грани (контур модели часто заходит за стену, и ближе к нему наружная)
+        while 0 <= k + inward < len(prof) and prof[k + inward] >= min_cover:
+            k += inward
+        best = int(pos_all[k])
         out[i] = best + inward  # пол начинается за линией
         snapped += 1
     return out, snapped
@@ -372,3 +377,29 @@ def rooms_from_bbox(gray: np.ndarray, bbox, px_per_m: float, barrier: np.ndarray
         return [{"polygon": poly(p), "area_px2": float(p.sum()), "how": how, "sides_snapped": sides} for p, how in out]
     rect = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
     return [{"polygon": rect, "area_px2": float(A), "how": "bbox", "sides_snapped": sides}]
+
+
+def rectify_room(gray: np.ndarray, polygon, px_per_m: float, min_fill: float = 0.85,
+                 max_tilt_deg: float = 3.0, min_iou: float = 0.8) -> list | None:
+    """Почти прямоугольный контур модели -> прямоугольник по линиям стен.
+    Маска модели у тонких перегородок с дверями «гуляет» (заходит в соседнее помещение, даёт ступеньки).
+    Если контур заполняет ≥ min_fill своей описанной рамки и не повёрнут, стороны рамки прижимаются к линиям
+    стен (snap_room_bbox). Результат принимается, если прижаты ≥ 3 стороны и он совпадает с контуром по
+    IoU ≥ min_iou; иначе None (контур остаётся как есть)."""
+    from shapely.geometry import Polygon, box
+    c = np.array(polygon, np.float32).reshape(-1, 1, 2)
+    (_, _), (rw, rh), ang = cv2.minAreaRect(c)
+    if rw * rh <= 0:
+        return None
+    tilt = min(abs(ang) % 90, 90 - abs(ang) % 90)
+    if tilt > max_tilt_deg or cv2.contourArea(c) / (rw * rh) < min_fill:
+        return None
+    p = Polygon(polygon).buffer(0)
+    (x0, y0, x1, y1), sides = snap_room_bbox(gray, p.bounds, px_per_m)
+    if sides < 3 or x1 <= x0 or y1 <= y0:
+        return None
+    r = box(x0, y0, x1, y1)
+    iou = r.intersection(p).area / r.union(p).area
+    if iou < min_iou:
+        return None
+    return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]

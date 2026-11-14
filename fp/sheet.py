@@ -260,7 +260,8 @@ def find_rooms(img: np.ndarray, region=None) -> tuple[list[dict], float]:
                    "corridors). A room full of pipes or equipment is still ONE room - its boundary is the walls, "
                    "not the pipes. Do NOT list: pipes, tanks, pits, equipment, outdoor pads or slabs outside the "
                    "walls, detail callouts, notes, the title block, the building's outer wall band or column grid "
-                   "strip. For each room: the name written in it (named_on_sheet=true), or a short description "
+                   "strip. List every room SEPARATELY, even if many rooms are identical: never one box "
+                   "for a group of repeated rooms and never the word 'typical'. For each room: the name written in it (named_on_sheet=true), or a short description "
                    "such as 'pump room' (named_on_sheet=false); bbox of the room's inner wall faces in this "
                    "image's pixels. If there are no walls at all, return an empty list.")}]
     resp = anthropic.Anthropic().messages.create(

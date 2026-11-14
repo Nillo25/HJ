@@ -154,6 +154,12 @@ def count(scene: Scene, cls: str, room: str | None = None) -> Answer:
     if y is None:  # второго источника нет
         return Answer(v, "шт", "medium", 0.8, [], ev, "по описи плана (ИИ по картинке)")
     agree = y.answer == v
+    if src == "yolo" and y.answer == 0 and v >= 3:
+        # свои способы не нашли ничего, а опись видит несколько — на чертёжном листе «0 окон в здании» почти
+        # наверняка значит, что объекты нарисованы непривычно (общежитие A-2: 0 против 96). На eval_set
+        # CubiCasa такого не бывает, ответы Stoa не меняются
+        return Answer(v, "шт", "low", 0.4, [], ev + y.evidence,
+                      f"на плане не распознано ни одного — число по описи плана (ИИ по картинке), проверьте")
     if src == "yolo":
         a = y
         if agree:

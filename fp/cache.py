@@ -1,8 +1,8 @@
 """Кэш чата в SQLite: повтор вопроса не стоит денег.
 
 Два уровня:
-- answers   — (версия сцены, вопрос) -> готовый ответ. Версия = sha256 содержимого сцены, поэтому любая правка
-              сцены (масштаб, повторный разбор) сама делает старые ответы недействительными.
+- answers   — (версия сцены, вопрос) -> готовый ответ. Версия = sha256 содержимого сцены и кода ответов, поэтому
+              любая правка сцены (масштаб, повторный разбор) или подсчёта сама делает старые ответы недействительными.
 - templates — (вид листа, вопрос) -> какие инструменты вызвать. Найдено LLM на одном плане, повторяется на
               любом другом без LLM: ответ считает наш код по сцене этого плана.
 
@@ -57,8 +57,24 @@ def is_followup(q: str) -> bool:
     return bool(_FOLLOWUP.match(q)) or len(q.split()) <= 1
 
 
+def _code_version() -> str:
+    """Отпечаток кода, который считает ответы: правка подсчёта или маршрутов делает старые ответы недействительными
+    (иначе тот же вопрос к той же сцене вернул бы ответ, посчитанный прежним кодом)."""
+    root = Path(__file__).parent
+    h = hashlib.sha256()
+    for name in ("query.py", "chat.py", "route.json"):
+        f = root / name
+        if f.exists():
+            h.update(f.read_bytes())
+    return h.hexdigest()[:12]
+
+
+CODE_VERSION = _code_version()
+
+
 def scene_key(scene) -> str:
-    return hashlib.sha256(json.dumps(scene.to_dict(), sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    body = json.dumps(scene.to_dict(), sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(f"{CODE_VERSION}|{body}".encode()).hexdigest()
 
 
 def scene_kind(scene) -> str:
