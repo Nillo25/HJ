@@ -9,3 +9,7 @@ __pycache__/
 .DS_Store
 unknown_labels.txt
 data/
+server/public/
+server/uploads/
+web/node_modules/
+.env

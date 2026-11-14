@@ -363,9 +363,14 @@ def evidence_of(rows, con, limit=50):
                         "bbox": r["bbox"]})
             continue
         ref = r["source_ref"]
+        label = r["label"]
+        if r["type"] in ("room_row", "door_row"):      # schedule rows: number + name
+            pr = json.loads(r["props"] or "{}")
+            name = pr.get("name") or pr.get("room_name")
+            label = f"{label} {name}" if name else label
         kind = "ifc" if ref and len(str(ref)) == 22 else "geom"
         out.append({"kind": kind, "id": r["id"], "ref": ref, "type": r["type"],
-                    "subtype": r["subtype"], "label": r["label"],
+                    "subtype": r["subtype"], "label": label,
                     "floor": floor_name(r["floor_id"]), "page": r["page"],
                     "bbox": r["bbox"], "area": r["area"], "length": r["length"],
                     "volume": r["volume"]})

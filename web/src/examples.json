@@ -1,0 +1,262 @@
+{
+ "cubicasa5k": [
+  {
+   "q": "How many windows are shown on this floor plan?",
+   "type": "count",
+   "drawing": "colorful-11397"
+  },
+  {
+   "q": "How many toilet bowls (WC seats) are drawn on this floor plan?",
+   "type": "count",
+   "drawing": "colorful-11397"
+  },
+  {
+   "q": "How many sinks and wash basins (kitchen and bathroom combined; a double-bowl sink counts as one) are drawn on this floor plan?",
+   "type": "count",
+   "drawing": "colorful-11397"
+  },
+  {
+   "q": "How many showers and bathtubs are drawn on this floor plan in total?",
+   "type": "count",
+   "drawing": "colorful-11397"
+  },
+  {
+   "q": "How many floors (storeys) does this floor plan show?",
+   "type": "count",
+   "drawing": "colorful-11397"
+  },
+  {
+   "q": "How many doors are shown on this floor plan? Count doorways fitted with a door; open doorways without a door leaf do not count.",
+   "type": "count",
+   "drawing": "colorful-11960"
+  },
+  {
+   "q": "How many bedrooms (makuuhuone, usually marked MH) are on this floor plan?",
+   "type": "count",
+   "drawing": "colorful-12200"
+  },
+  {
+   "q": "How many kitchens (including kitchenettes, open kitchens and utility kitchens) are on this floor plan?",
+   "type": "count",
+   "drawing": "colorful-12200"
+  },
+  {
+   "q": "How many bathrooms or washrooms (e.g. KH, KPH, PH, PESUH, SH) are on this floor plan, not counting separate WC rooms?",
+   "type": "count",
+   "drawing": "colorful-12200"
+  },
+  {
+   "q": "How many separate WC rooms (toilet rooms marked WC) are on this floor plan?",
+   "type": "count",
+   "drawing": "colorful-12200"
+  }
+ ],
+ "ifc_bench": [
+  {
+   "q": "What is the building's type and its function?",
+   "type": "text",
+   "drawing": "ac20_arc"
+  },
+  {
+   "q": "What software and ifc standards were used to create this model?",
+   "type": "text",
+   "drawing": "ac20_arc"
+  },
+  {
+   "q": "What are the number of levels, building footprint area, total floor area, and total number of rooms/spaces?",
+   "type": "text",
+   "drawing": "ac20_arc"
+  },
+  {
+   "q": "What is the space distribution by level with areas and primary space functions with percentages?",
+   "type": "text",
+   "drawing": "ac20_arc"
+  },
+  {
+   "q": "What is the space breakdown of the basement floor grouped by function with areas?",
+   "type": "text",
+   "drawing": "ac20_arc"
+  },
+  {
+   "q": "What is the space breakdown of the ground level grouped by function with areas?",
+   "type": "text",
+   "drawing": "ac20_arc"
+  },
+  {
+   "q": "What is the space breakdown of the first floor grouped by function with areas?",
+   "type": "text",
+   "drawing": "ac20_arc"
+  },
+  {
+   "q": "What is the space breakdown of the second level grouped by function with areas?",
+   "type": "text",
+   "drawing": "ac20_arc"
+  },
+  {
+   "q": "What is the space breakdown of the attic floor with areas?",
+   "type": "text",
+   "drawing": "ac20_arc"
+  },
+  {
+   "q": "What are the heights of each level?",
+   "type": "text",
+   "drawing": "ac20_arc"
+  }
+ ],
+ "ifc_models": [
+  {
+   "q": "How many sanitary fixtures are there in the model 'Medical-Dental Clinic - plumbing'?",
+   "type": "count",
+   "drawing": "bsc-clinic_clinic-plumbing"
+  },
+  {
+   "q": "How many doors are there in the model 'Maleva tänav 18 korterelamu (Esplanades example model)'?",
+   "type": "count",
+   "drawing": "bsc-esplanades_1807-ep-ar-v18_plan-04-4-korrus"
+  },
+  {
+   "q": "How many windows are there in the model 'Maleva tänav 18 korterelamu (Esplanades example model)'?",
+   "type": "count",
+   "drawing": "bsc-esplanades_1807-ep-ar-v18_plan-04-4-korrus"
+  },
+  {
+   "q": "How many rooms (spaces) are there in the model 'Maleva tänav 18 korterelamu (Esplanades example model)'?",
+   "type": "count",
+   "drawing": "bsc-esplanades_1807-ep-ar-v18_plan-04-4-korrus"
+  },
+  {
+   "q": "How many walls are there in the model 'Maleva tänav 18 korterelamu (Esplanades example model)'?",
+   "type": "count",
+   "drawing": "bsc-esplanades_1807-ep-ar-v18_plan-04-4-korrus"
+  },
+  {
+   "q": "How many columns are there in the model 'Maleva tänav 18 korterelamu (Esplanades example model)'?",
+   "type": "count",
+   "drawing": "bsc-esplanades_1807-ep-ar-v18_plan-04-4-korrus"
+  },
+  {
+   "q": "How many beams are there in the model 'Maleva tänav 18 korterelamu (Esplanades example model)'?",
+   "type": "count",
+   "drawing": "bsc-esplanades_1807-ep-ar-v18_plan-04-4-korrus"
+  },
+  {
+   "q": "How many stairs are there in the model 'Maleva tänav 18 korterelamu (Esplanades example model)'?",
+   "type": "count",
+   "drawing": "bsc-esplanades_1807-ep-ar-v18_plan-04-4-korrus"
+  },
+  {
+   "q": "How many doors are shown on the floor plan of '1.korrus'?",
+   "type": "count",
+   "drawing": "bsc-esplanades_1807-ep-ar-v18"
+  },
+  {
+   "q": "How many rooms (spaces) are shown on the floor plan of '1.korrus'?",
+   "type": "count",
+   "drawing": "bsc-esplanades_1807-ep-ar-v18"
+  }
+ ],
+ "opening_design": [
+  {
+   "q": "On sheet A-801 of the Xcel Sports Complex drawings, how many doors (door numbers) are listed in the door schedule?",
+   "type": "count",
+   "drawing": "A-801 - Door and Finish Schedules & Wall Types"
+  },
+  {
+   "q": "On sheet A-801 of the Xcel Sports Complex drawings, how many doors in the door schedule are door type A1 (swing door)?",
+   "type": "count",
+   "drawing": "A-801 - Door and Finish Schedules & Wall Types"
+  },
+  {
+   "q": "On sheet A-801 of the Xcel Sports Complex drawings, how many doors in the door schedule are door type A2 (double swing door)?",
+   "type": "count",
+   "drawing": "A-801 - Door and Finish Schedules & Wall Types"
+  },
+  {
+   "q": "On sheet A-801 of the Xcel Sports Complex drawings, how many doors in the door schedule are door type B1 (aluminium door with glazing)?",
+   "type": "count",
+   "drawing": "A-801 - Door and Finish Schedules & Wall Types"
+  },
+  {
+   "q": "On sheet A-801 of the Xcel Sports Complex drawings, how many doors in the door schedule are door type B2 (double aluminium door with glazing)?",
+   "type": "count",
+   "drawing": "A-801 - Door and Finish Schedules & Wall Types"
+  },
+  {
+   "q": "On sheet A-801 of the Xcel Sports Complex drawings, how many doors in the door schedule are door type B3 (aluminium sliding door)?",
+   "type": "count",
+   "drawing": "A-801 - Door and Finish Schedules & Wall Types"
+  },
+  {
+   "q": "On sheet A-801 of the Xcel Sports Complex drawings, how many doors in the door schedule are door type C1 (roll-up insulated door)?",
+   "type": "count",
+   "drawing": "A-801 - Door and Finish Schedules & Wall Types"
+  },
+  {
+   "q": "On sheet A-801 of the Xcel Sports Complex drawings, how many doors in the door schedule have a wood solid core door (material WD-1)?",
+   "type": "count",
+   "drawing": "A-801 - Door and Finish Schedules & Wall Types"
+  },
+  {
+   "q": "On sheet A-801 of the Xcel Sports Complex drawings, how many doors in the door schedule have an interior-grade hollow metal frame (STL-1)?",
+   "type": "count",
+   "drawing": "A-801 - Door and Finish Schedules & Wall Types"
+  },
+  {
+   "q": "On sheet A-801 of the Xcel Sports Complex drawings, how many doors in the door schedule have aluminium storefront frames (AL-1 or AL-2)?",
+   "type": "count",
+   "drawing": "A-801 - Door and Finish Schedules & Wall Types"
+  }
+ ],
+ "swiss_dwellings": [
+  {
+   "q": "How many apartments (residential units) are shown on this floor plan?",
+   "type": "count",
+   "drawing": "site1102_bldg2242_floor10281"
+  },
+  {
+   "q": "How many rooms labelled 'Stanza' are there on this floor?",
+   "type": "count",
+   "drawing": "site1102_bldg2242_floor10281"
+  },
+  {
+   "q": "How many doors (interior doors and entrance doors together) are drawn on this floor plan?",
+   "type": "count",
+   "drawing": "site1102_bldg2242_floor10281"
+  },
+  {
+   "q": "How many windows are drawn on this floor plan?",
+   "type": "count",
+   "drawing": "site1102_bldg2242_floor10281"
+  },
+  {
+   "q": "How many toilets (WC) are drawn on this floor plan?",
+   "type": "count",
+   "drawing": "site1102_bldg2242_floor10281"
+  },
+  {
+   "q": "How many washbasins are drawn on this floor plan?",
+   "type": "count",
+   "drawing": "site1102_bldg2242_floor10281"
+  },
+  {
+   "q": "How many bathtubs are drawn on this floor plan?",
+   "type": "count",
+   "drawing": "site1102_bldg2242_floor10281"
+  },
+  {
+   "q": "What is the net floor area of room 5.11 ('Stanza') in m²?",
+   "type": "area",
+   "drawing": "site1102_bldg2242_floor10281"
+  },
+  {
+   "q": "What is the net floor area of apartment A in m², summing all its rooms except balconies, loggias, terraces and other outdoor spaces?",
+   "type": "area",
+   "drawing": "site1102_bldg2242_floor10281"
+  },
+  {
+   "q": "What is the net floor area of apartment B in m², summing all its rooms except balconies, loggias, terraces and other outdoor spaces?",
+   "type": "area",
+   "drawing": "site1102_bldg2242_floor10281"
+  }
+ ]
+}

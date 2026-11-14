@@ -38,3 +38,14 @@ python eval.py ~/Downloads/junction-dataset-preview --db ../app.db
 # 3. сервер
 cd ../server && npm i && npm run dev
 ```
+
+## Run
+
+    pip install -r indexer/requirements.txt        # pdfminer.six only
+    cd server && npm i && cp .env.example .env     # add a model key, optional
+    cd ../web && npm i && npm run build            # builds into server/public
+    cd ../server && npm start                      # http://localhost:3000
+
+Upload a drawing set in the UI (DXF + PNG/PDF with the same name, IFC, or a PDF).
+Known question patterns are answered without a model; anything else goes to the
+model set in `.env`. Token use per model is shown in the page header.

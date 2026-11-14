@@ -7,7 +7,7 @@
 import { z } from 'zod';
 import { generateObject } from 'ai';
 import { google } from '@ai-sdk/google';
-import { openai } from '@ai-sdk/openai';
+import { createOpenAI } from '@ai-sdk/openai';
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { recordUsage, type Usage } from './usage.js';
@@ -17,6 +17,7 @@ import { FNS, resolveDrawing } from './tools.js';
 /** Question parsing model. LLM_PROVIDER=openai|google, LLM_MODEL overrides the default. */
 const PROVIDER = process.env.LLM_PROVIDER ?? (process.env.OPENAI_API_KEY ? 'openai' : 'google');
 const MODEL_ID = process.env.LLM_MODEL ?? (PROVIDER === 'openai' ? 'gpt-4.1-mini' : 'gemini-2.5-flash');
+const openai = createOpenAI({ baseURL: process.env.OPENAI_BASE_URL });   // unset = api.openai.com
 const MODEL = PROVIDER === 'openai' ? openai(MODEL_ID) : google(MODEL_ID);
 const HAS_KEY = PROVIDER === 'openai'
   ? !!process.env.OPENAI_API_KEY : !!process.env.GOOGLE_GENERATIVE_AI_API_KEY;
@@ -94,6 +95,15 @@ function fill(args: any, slots: string[]) {
 
 /* ------------------------------------------------------- доказательство */
 
+function scheduleLabel(r: Element): string | null {
+  if (r.type !== 'room_row' && r.type !== 'door_row') return r.label;
+  try {
+    const p = JSON.parse(r.props ?? '{}');
+    const name = p.name ?? p.room_name;
+    return name ? `${r.label} ${name}` : r.label;
+  } catch { return r.label; }
+}
+
 function evidenceOf(rows: Element[], drawingId: number, limit = 50) {
   const floors = new Map<number, string>(
     (floorsOf.all(drawingId) as any[]).map((f) => [f.id, f.name]),
@@ -101,8 +111,8 @@ function evidenceOf(rows: Element[], drawingId: number, limit = 50) {
   return rows.slice(0, limit).map((r) => ({
     kind: r.source_ref && r.source_ref.length === 22 ? 'ifc' : 'geom',
     id: r.id, ref: r.source_ref, type: r.type, subtype: r.subtype,
-    label: r.label, floor: r.floor_id ? floors.get(r.floor_id) ?? null : null,
-    page: r.page, bbox: r.bbox,
+    label: scheduleLabel(r), floor: r.floor_id ? floors.get(r.floor_id) ?? null : null,
+    page: r.page, bbox: r.bbox, area: r.area, length: r.length, volume: r.volume,
   }));
 }
 
