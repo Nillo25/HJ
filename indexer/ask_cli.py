@@ -18,10 +18,14 @@ def main():
     ap.add_argument("--db", required=True)
     ap.add_argument("--drawing", required=True)
     ap.add_argument("--question")
+    ap.add_argument("--snippets", action="store_true", help="print the lines of a PDF's text the question is about")
     ap.add_argument("--fn", help="run a function chosen by the question parser instead of matching a template")
     ap.add_argument("--args", default="{}", help="JSON arguments for --fn")
     a = ap.parse_args()
     con = sqlite3.connect(a.db)
+    if a.snippets:
+        json.dump(answer.snippets(con, a.drawing, a.question or ""), sys.stdout, ensure_ascii=False)
+        return
     if a.fn:
         res = answer.call(con, a.drawing, a.fn, json.loads(a.args))
     else:

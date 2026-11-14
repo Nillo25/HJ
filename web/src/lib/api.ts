@@ -7,6 +7,7 @@ export type Drawing = {
   source: string;
   status: string;
   elements: number;
+  text_lines?: number;
   capabilities?: { counts?: string; areas?: string; text?: string; reason?: string } | null;
   files?: { format: string; role?: string }[];
 };

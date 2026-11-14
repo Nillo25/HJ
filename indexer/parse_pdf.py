@@ -30,8 +30,12 @@ ROOM_COLS = [
 DOOR_X_MAX = 950      # the legend to the right shares the same baselines
 
 
+MAX_PAGES = 30          # a drawing set can have hundreds of pages: the first ones are read, the rest is said not to be
+MAX_SPANS_PER_PAGE = 6000
+
+
 def _lines(path):
-    for pno, pg in enumerate(extract_pages(path), 1):
+    for pno, pg in enumerate(extract_pages(path, maxpages=MAX_PAGES), 1):
         out = []
 
         def walk(o):
@@ -78,6 +82,10 @@ def _feet(s):
 def parse(path: str, dict_rows: dict):
     out = []
     for pno, lines in _lines(path):
+        # every line of text with its position: this is what free-form questions are answered from
+        for x0, y0, x1, y1, t in lines[:MAX_SPANS_PER_PAGE]:
+            out.append({"type": "text_span", "label": t, "page": pno,
+                        "bbox": json.dumps([round(x0, 2), round(y0, 2), round(x1, 2), round(y1, 2)])})
         for row in _rows(lines):
             # margin grid markers ("E", "D") sit left of the table on some baselines
             row = [l for l in row if l[0] > 100] or row

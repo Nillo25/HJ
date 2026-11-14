@@ -36,6 +36,7 @@ function card(s: Session) {
     id: s.uid, name: s.meta.fileName.replace(/\.[^.]+$/, ''), kind: s.meta.kind,
     source: s.drawing.source, status: s.drawing.status, capabilities: s.drawing.capabilities,
     elements: elementCount(s.db, s.drawing.id), created_at: s.meta.createdAt,
+    text_lines: (s.db.prepare('SELECT COUNT(*) n FROM text_spans').get() as any).n as number,
   };
 }
 
@@ -58,8 +59,8 @@ app.get('/api/drawings/:id', (c) => {
 const VIEWER_MAX_MB = Number(process.env.VIEWER_MAX_MB ?? 150);
 app.get('/api/drawings/:id/source', (c) => {
   const s = getSession(c.req.param('id'));
-  if (!s || s.meta.kind !== 'ifc') return c.json({ error: 'no source' }, 404);
-  const abs = path.join(s.dir, 'data', SOURCE_BY_KIND.ifc, s.meta.fileName);
+  if (!s || (s.meta.kind !== 'ifc' && s.meta.kind !== 'pdf')) return c.json({ error: 'no source' }, 404);
+  const abs = path.join(s.dir, 'data', SOURCE_BY_KIND[s.meta.kind], s.meta.fileName);
   if (!existsSync(abs)) return c.json({ error: 'no source' }, 404);
   const size = statSync(abs).size;
   if (size > VIEWER_MAX_MB * 1e6) return c.json({ error: `file is larger than ${VIEWER_MAX_MB} MB: too big for the 3D view` }, 413);
@@ -283,12 +284,12 @@ app.post('/api/upload', async (c) => {
     const s = getSession(uid);
     if (!s) return finish(job, false, 'nothing was indexed');
     // a structured format that produced no objects failed to parse: say why instead of an empty drawing
-    if (kind !== 'png' && elementCount(s.db, s.drawing.id) === 0) {
+    if (kind !== 'png' && kind !== 'pdf' && elementCount(s.db, s.drawing.id) === 0) {
       const note = (filesOf(s.db, s.drawing.id)[0]?.note as string | undefined) ?? 'no objects found';
       return finish(job, false, `could not parse the file: ${note}`);
     }
-    if (kind !== 'pdf' && kind !== 'dxf') return finish(job, true);
-    // vector PDF and DXF: draw the sheet so answers can be shown on it; a failure here is not fatal
+    if (kind !== 'dxf') return finish(job, true);
+    // DXF: draw the drawing so answers can be shown on it (a PDF is drawn by the browser); a failure here is not fatal
     job.stage = 'rendering';
     const r = spawn(PYTHON, [path.resolve(kind === 'dxf' ? '../indexer/render_dxf.py' : '../indexer/render_pdf.py'), path.join(dir, name), path.join(root, 'sheet.svg')]);
     const rt = setTimeout(() => r.kill(), INDEX_TIMEOUT_S * 1000);

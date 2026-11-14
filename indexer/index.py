@@ -145,8 +145,8 @@ def main():
             for r in rows:
                 if r["type"] == "text_span":
                     con.execute(
-                        "INSERT INTO text_spans(file_id, text, bbox) VALUES (?,?,?)",
-                        (fid, r["label"], r["bbox"]))
+                        "INSERT INTO text_spans(file_id, page, text, bbox) VALUES (?,?,?,?)",
+                        (fid, r.get("page"), r["label"], r["bbox"]))
                     continue
                 if r.get("label") and r.get("type") == "room" and not r.get("subtype"):
                     n = L.norm(r["label"])

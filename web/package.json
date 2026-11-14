@@ -9,6 +9,7 @@
     "prebuild": "node scripts/copy-wasm.mjs"
   },
   "dependencies": {
+    "pdfjs-dist": "^6.5.438",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "three": "^0.187.0",

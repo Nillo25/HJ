@@ -123,6 +123,69 @@ async function report(d: Session, question: string, t0: number, prior: Usage[], 
   };
 }
 
+/** Lines of a PDF's text that the question is about (chosen in Python: no model, no tokens). */
+function pySnippets(s: Session, question: string): Promise<{ id: number; page: number; text: string; bbox: number[]; x?: number; y?: number }[]> {
+  return new Promise((resolve) => {
+    execFile(PYTHON, [
+      path.resolve('../indexer/ask_cli.py'),
+      '--db', s.dbPath, '--drawing', s.drawing.name, '--snippets', '--question', question,
+    ], { timeout: 20000, maxBuffer: 16e6 }, (err, out) => {
+      if (err) return resolve([]);
+      try { resolve(JSON.parse(out)); } catch { resolve([]); }
+    });
+  });
+}
+
+/**
+ * A question about the text of a PDF: the model reads only the chosen numbered lines and must name the ones it used.
+ * Those lines become the evidence and are boxed on the page; an answer that cites nothing is not shown as an answer.
+ */
+async function textAnswer(d: Session, question: string, t0: number) {
+  if (!HAS_KEY) {
+    return { status: 'refused', reason: 'free-form questions about a PDF need a model key', missing: 'template',
+             route: 'none', usage: [], cost_usd: 0, latency_ms: Date.now() - t0 };
+  }
+  const snips = await pySnippets(d, question);
+  if (!snips.length) {
+    return { status: 'refused', reason: 'No line of text in this PDF relates to the question (it may be a scan or a drawing without text).',
+             missing: 'data', route: 'cache', usage: [], cost_usd: 0, latency_ms: Date.now() - t0 };
+  }
+  const byId = new Map(snips.map((x) => [x.id, x]));
+  const { object, usage } = await gated(() => generateObject({
+    model: MODEL,
+    temperature: 0,
+    schema: z.object({
+      enough: z.boolean().describe('true only if the numbered lines contain the answer'),
+      answer: z.string().describe('the answer, short, in the language of the question; if not enough: what is missing'),
+      refs: z.array(z.number()).describe('ids of the lines the answer is taken from (at most 40)'),
+    }),
+    system:
+      'You answer a question about a construction drawing using ONLY the numbered lines of text extracted from its PDF. ' +
+      'Copy values exactly. In a table, read a value under the header at the same x, not a neighbouring column. Count only items that are explicitly listed in the lines; if the list may be incomplete or the ' +
+      'lines do not contain the answer, set enough=false. Put the ids of the lines you used in refs. Never invent an id.',
+    prompt: `Lines (#id pPAGE xCOLUMN yROW: text). Lines of a table row share the same y; a value belongs to the column header whose x is closest:\n${snips.map((x) => `#${x.id} p${x.page} x${x.x ?? 0} y${x.y ?? 0}: ${x.text}`).join('\n')}\n\nQuestion: ${question}`,
+  }));
+  const cost = estimateCost(usage);
+  const used = [recordUsage(`${PROVIDER}:${MODEL_ID}`, usage?.promptTokens ?? 0, usage?.completionTokens ?? 0, cost)];
+  const refs = [...new Set(object.refs)].filter((r) => byId.has(r)).slice(0, 40);
+  if (!object.enough) {
+    return { status: 'refused', reason: object.answer.trim(), missing: 'data', route: 'llm', cost_usd: cost, usage: used,
+             latency_ms: Date.now() - t0, fn: 'text_search', args: {} };
+  }
+  if (!refs.length) {
+    return { status: 'refused', reason: 'The answer did not point to any line of the PDF, so it cannot be shown as verified.',
+             missing: 'data', route: 'llm', cost_usd: cost, usage: used, latency_ms: Date.now() - t0, fn: 'text_search', args: {} };
+  }
+  return {
+    status: 'answered', answer: object.answer.trim(), unit: 'text', confidence: 1, route: 'llm', cost_usd: cost, usage: used,
+    latency_ms: Date.now() - t0, fn: 'text_search', args: {},
+    evidence: refs.map((r) => {
+      const x = byId.get(r)!;
+      return { kind: 'page', id: x.id, label: x.text, page: x.page, bbox: JSON.stringify(x.bbox) };
+    }),
+  };
+}
+
 /* ------------------------------------------------ схема разбора вопроса */
 
 const Query = z.discriminatedUnion('fn', [
@@ -234,9 +297,14 @@ export async function ask(d: Session, question: string) {
   const drawingId = d.drawing.id;
 
   const tpl = await pyTemplate(d, question);
-  if (tpl && !(tpl.status === 'refused' && tpl.missing === 'template')) {
+  // a PDF without schedule rows has no "parsed objects" but has text: it falls through to the text path
+  const fallsThrough = tpl?.status === 'refused' && (tpl.missing === 'template' || (d.meta.kind === 'pdf' && tpl.missing === 'parser'));
+  if (tpl && !fallsThrough) {
     return { ...tpl, route: 'template', usage: [], latency_ms: Date.now() - t0 };
   }
+
+  // a PDF is read, not queried: the question is answered from the lines of its text
+  if (d.meta.kind === 'pdf') return textAnswer(d, question, t0);
 
   const { template, slots } = templatize(question);
   let parsed: any = null;

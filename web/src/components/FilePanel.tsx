@@ -124,7 +124,9 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
             <p className="truncate text-sm font-medium" title={current.name}>{current.name}</p>
             <p className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
               <Badge tone="blue">{KIND_LABEL[current.kind]}</Badge>
-              <span>{current.elements ? `${current.elements.toLocaleString('en-US')} objects parsed` : 'not parsed (no objects)'}</span>
+              <span>{current.kind === 'pdf'
+                ? `${(current.text_lines ?? 0).toLocaleString('en-US')} text lines read${current.elements ? `, ${current.elements} schedule rows` : ''}`
+                : current.elements ? `${current.elements.toLocaleString('en-US')} objects parsed` : 'not parsed (no objects)'}</span>
               {parsedMs != null && <span className="tabular-nums">in {(parsedMs / 1000).toFixed(1)} s</span>}
             </p>
           </div>

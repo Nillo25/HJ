@@ -478,6 +478,72 @@ def floor_area_parts(con, drawing, floor=None):
     return parts
 
 
+STOP = set("""a an the of to in on at for and or is are was were be been what which who whom whose how many much does do did
+can could would should this that these those there their it its with from by as about into out per all any each every sheet
+drawing drawings page pages listed list scheduled schedule total number count""".split()) | set(
+    "der die das und oder ist sind wie viele welche was auf im in den dem ein eine le la les des du un une est sont combien "
+    "quel quelle il il el los las que cual cuantos cuantas di il lo gli quanti quale sono kuinka monta mika onko mitu mis hvor "
+    "mange hvad er og som vad hur manga och ar сколько какой какая какие что это на в и по для".split())
+
+
+def snippets(con, drawing: str, question: str, limit: int = 160):
+    """Lines of a PDF's text that a question is about, with the other lines of the same row (a schedule row is one
+    thing), in reading order. -> [{id, page, text, bbox}]"""
+    con.row_factory = __import__("sqlite3").Row
+    rows = con.execute(
+        """SELECT t.id, t.page, t.text, t.bbox FROM text_spans t JOIN files f ON f.id=t.file_id
+            WHERE f.drawing_id=(SELECT id FROM drawings WHERE name=?)""", (drawing,)).fetchall()
+    spans = []
+    for r in rows:
+        try:
+            b = json.loads(r["bbox"])
+        except ValueError:
+            continue
+        spans.append({"id": r["id"], "page": r["page"] or 1, "text": r["text"], "bbox": b, "y": (b[1] + b[3]) / 2, "x": b[0]})
+    toks = {t for t in re.findall(r"[\w'\".\-/]{2,}", question.lower()) if t not in STOP and len(t) >= 2}
+    toks = {t.strip(".'\"-") for t in toks}
+    toks = {t for t in toks if len(t) >= 2 and t not in STOP}
+    scored = []
+    for sp in spans:
+        low = sp["text"].lower()
+        sc = sum(min(len(t), 8) for t in toks if t in low)
+        if sc:
+            scored.append((sc, sp))
+    scored.sort(key=lambda x: -x[0])
+    pick = {}
+    for _sc, sp in scored[:60]:
+        pick[sp["id"]] = sp
+        for o in spans:                                   # the rest of the row
+            if o["page"] == sp["page"] and abs(o["y"] - sp["y"]) <= 4 and o["id"] not in pick:
+                pick[o["id"]] = o
+        if len(pick) >= limit:
+            break
+    # a table value means something through its column: add the header row of the table above each hit row
+    rows_by = {}
+    for sp in spans:
+        rows_by.setdefault((sp["page"], round(sp["y"] / 4)), []).append(sp)
+    headers = {}
+    for sp in list(pick.values()):
+        cols = [o["x"] for o in rows_by.get((sp["page"], round(sp["y"] / 4)), [])]
+        if len(cols) < 3:
+            continue
+        for k in range(round(sp["y"] / 4) + 1, round(sp["y"] / 4) + 160):          # walk up the page, at most ~640 pt
+            row = rows_by.get((sp["page"], k))
+            if not row or len(row) < 5:
+                continue
+            wordy = sum(1 for o in row if re.fullmatch(r"[A-Za-z][A-Za-z \-/.()]{1,28}", o["text"].strip()))
+            aligned = sum(1 for x in cols if any(abs(x - o["x"]) < 30 for o in row))
+            if wordy >= 0.7 * len(row) and aligned >= 0.5 * len(cols):
+                for o in row:
+                    headers[o["id"]] = o
+                break
+    for hid, o in headers.items():
+        pick.setdefault(hid, o)
+    out = sorted(pick.values(), key=lambda s_: (s_["page"], -round(s_["y"] / 4), s_["x"]))[:limit + 40]
+    return [{"id": s_["id"], "page": s_["page"], "text": s_["text"], "bbox": s_["bbox"],
+             "x": round(s_["x"]), "y": round(s_["y"])} for s_ in out]
+
+
 FNS = {"count_objects": count_objects, "room_area": room_area, "floor_area": floor_area,
        "apartment_area": apartment_area, "count_labelled": count_labelled,
        "sum_quantity": sum_quantity, "list_floors": list_floors,
@@ -502,7 +568,7 @@ def evidence_of(rows, con, limit=1000):
         k = set(r.keys())
         if "source_ref" not in k:          # text_spans: a label on the sheet
             out.append({"kind": "page", "id": r["id"], "label": r["text"],
-                        "bbox": r["bbox"]})
+                        "page": r["page"] if "page" in k else None, "bbox": r["bbox"]})
             continue
         ref = r["source_ref"]
         label = r["label"]

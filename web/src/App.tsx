@@ -5,6 +5,7 @@ import { AnswerCard } from './components/AnswerCard';
 import { EvidenceTable } from './components/EvidenceTable';
 import { FilePanel } from './components/FilePanel';
 import { IfcViewer } from './components/IfcViewer';
+import { PdfViewer } from './components/PdfViewer';
 import { PlanViewer } from './components/PlanViewer';
 import { UsageBar } from './components/UsageBar';
 import { Button, Card, CardBody, CardHeader, CardTitle, Input } from './components/ui';
@@ -58,7 +59,7 @@ export default function App() {
   }
   const onSubmit = (e: FormEvent) => { e.preventDefault(); run(question); };
 
-  const hasPlan = current && current.kind !== 'png';
+  const hasPlan = current && current.kind !== 'png' && current.kind !== 'pdf';
   const evidence = pick?.evidence ?? answer?.evidence ?? [];
 
   return (
@@ -108,6 +109,7 @@ export default function App() {
           )}
           {/* both stay mounted: switching must not reload a 70 MB model */}
           {current?.kind === 'ifc' && <div className={ifcTab === '3d' ? '' : 'hidden'}><IfcViewer key={current.id} drawingId={current.id} evidence={evidence} /></div>}
+          {current?.kind === 'pdf' && <PdfViewer key={current.id} drawingId={current.id} evidence={evidence} />}
           {hasPlan && <div className={current.kind === 'ifc' && ifcTab !== 'plan' ? 'hidden' : ''}><PlanViewer key={current.id} drawingId={current.id} evidence={evidence} /></div>}
           {current?.kind === 'png' && (
             <Card>
