@@ -965,3 +965,18 @@ def test_tiled_inventory_keeps_points_in_tile_core(monkeypatch):
     monkeypatch.setattr("anthropic.Anthropic", lambda: types.SimpleNamespace(messages=Msgs()))
     inv, _ = IT.read_inventory_tiled(img, IT.WORK_PPM, None)     # масштаб 1:1
     assert inv["method"] == "tiles" and inv["tiles"] == len(calls) and inv["doors"] == 0 and inv["floors"] == 1
+
+
+def test_clear_cache_moves_scenes_to_backup(tmp_path, monkeypatch):
+    """Кнопка «Очистить кэш»: планы и кэш ответов переносятся в scenes_backup_<время>, ничего не удаляется."""
+    import json
+    import server.app as A
+    scenes = tmp_path / "scenes"
+    (scenes / "plan-1").mkdir(parents=True)
+    (scenes / "plan-1" / "scene.json").write_text(json.dumps({}))
+    (scenes / "cache.sqlite").write_text("")
+    monkeypatch.setattr(A, "SCENES", scenes)
+    r = A.clear_cache()
+    assert r["plans"] == 1 and r["moved"] == 2 and not any(scenes.iterdir())
+    assert (tmp_path / r["backup"] / "plan-1" / "scene.json").exists()
+    assert A.clear_cache() == {"moved": 0, "plans": 0, "backup": None}

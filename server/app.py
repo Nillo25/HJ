@@ -86,6 +86,22 @@ def plans():
     return sorted(p.name for p in SCENES.iterdir() if (p / "scene.json").exists())
 
 
+@app.post("/api/cache/clear")
+def clear_cache():
+    """Сброс кэша: разобранные планы и кэш ответов чата переносятся в соседнюю папку scenes_backup_<время>
+    (ничего не удаляется). Следующая загрузка каждого файла разберёт его заново. Словарь пользователя не трогаем."""
+    import time
+    items = list(SCENES.iterdir())
+    if not items:
+        return {"moved": 0, "plans": 0, "backup": None}
+    backup = SCENES.parent / f"{SCENES.name}_backup_{time.strftime('%H%M%S')}"
+    backup.mkdir(parents=True, exist_ok=True)
+    n_plans = sum(1 for p in items if (p / "scene.json").exists())
+    for p in items:
+        p.rename(backup / p.name)
+    return {"moved": len(items), "plans": n_plans, "backup": backup.name}
+
+
 @app.post("/api/plans")
 async def upload(file: UploadFile = File(...), force: bool = False):
     if not MODEL:
