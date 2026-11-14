@@ -298,7 +298,7 @@ export async function ask(d: Session, question: string) {
 
   const tpl = await pyTemplate(d, question);
   // a PDF without schedule rows has no "parsed objects" but has text: it falls through to the text path
-  const fallsThrough = tpl?.status === 'refused' && (tpl.missing === 'template' || (d.meta.kind === 'pdf' && tpl.missing === 'parser'));
+  const fallsThrough = tpl?.status === 'refused' && (tpl.missing === 'template' || (d.meta.kind === 'pdf' && (tpl.missing === 'parser' || tpl.missing === 'source_model')));
   if (tpl && !fallsThrough) {
     return { ...tpl, route: 'template', usage: [], latency_ms: Date.now() - t0 };
   }

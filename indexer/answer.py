@@ -539,6 +539,13 @@ def snippets(con, drawing: str, question: str, limit: int = 160):
                 break
     for hid, o in headers.items():
         pick.setdefault(hid, o)
+    if len(scored) < 3:
+        # nothing in the question points at a line ("what is this sheet about?"): give the model the text of the
+        # first pages in reading order, the longest lines first so that titles and notes come before dimensions
+        first = [sp for sp in spans if sp["page"] <= 2 and len(sp["text"].strip()) >= 4]
+        first.sort(key=lambda sp: -len(sp["text"]))
+        for sp in first[:limit]:
+            pick.setdefault(sp["id"], sp)
     out = sorted(pick.values(), key=lambda s_: (s_["page"], -round(s_["y"] / 4), s_["x"]))[:limit + 40]
     return [{"id": s_["id"], "page": s_["page"], "text": s_["text"], "bbox": s_["bbox"],
              "x": round(s_["x"]), "y": round(s_["y"])} for s_ in out]
