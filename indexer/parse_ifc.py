@@ -26,6 +26,7 @@ import json
 import re
 
 from labels import norm, subtype_for
+from ifc_geom import Geom, GEOM_KEEP
 
 # question subject -> IFC classes
 TYPES = {
@@ -51,7 +52,7 @@ GEOM = {"IFCPRODUCTDEFINITIONSHAPE", "IFCSHAPEREPRESENTATION", "IFCPOLYLINE",
 QTY = {"IFCELEMENTQUANTITY", "IFCQUANTITYAREA", "IFCQUANTITYVOLUME",
        "IFCQUANTITYLENGTH"}
 TYPE_DEFS = {"IFCDOORTYPE", "IFCWINDOWTYPE", "IFCDOORSTYLE", "IFCWINDOWSTYLE"}
-KEEP = (set(CLASS2TYPE) | REL | QTY | GEOM | TYPE_DEFS | {
+KEEP = (set(CLASS2TYPE) | REL | QTY | GEOM | TYPE_DEFS | GEOM_KEEP | {
     "IFCBUILDINGSTOREY", "IFCBUILDING", "IFCPROJECT", "IFCSITE", "IFCRELDEFINESBYTYPE", "IFCAPPLICATION"})
 
 HEAD = re.compile(r"^#(\d+)\s*=\s*([A-Z0-9_]+)\s*\(", re.I)
@@ -313,6 +314,7 @@ def parse(path: str, dict_rows: dict):
 
     # --- elements ----------------------------------------------------------
     out = []
+    geom = Geom(ents, scale)
     for eid, (cls, a) in ents.items():
         t = CLASS2TYPE.get(cls)
         if not t:
@@ -359,6 +361,15 @@ def parse(path: str, dict_rows: dict):
         elif t == "slab":
             row["area"] = pick(eid, AREA)
             row["volume"] = pick(eid, VOL)
+        # plan footprint (polygon + bbox in metres); an element we cannot place stays without one
+        try:
+            poly = geom.footprint(a, "FootPrint" if t == "room" else "Body")
+        except (IndexError, ValueError, ZeroDivisionError, RecursionError):
+            poly = None
+        if poly and len(poly) >= 3:
+            xs, ys = [p[0] for p in poly], [p[1] for p in poly]
+            row["polygon"] = json.dumps(poly)
+            row["bbox"] = json.dumps([min(xs), min(ys), max(xs), max(ys)])
         out.append(row)
 
     # Elements of a type that sit in storeys are the building; copies of the same

@@ -10,7 +10,7 @@ import { Readable } from 'node:stream';
 import path from 'node:path';
 
 import {
-  KINDS, SOURCE_BY_KIND, UPLOADS, cleanupUploads, elementCount, ensureUploads, filesOf, floorsOf,
+  INDEX_VERSION, KINDS, SOURCE_BY_KIND, UPLOADS, cleanupUploads, elementCount, ensureUploads, filesOf, floorsOf,
   getSession, latestEval, listSessions, queryElements, metaPath,
   type Element, type Kind, type Session,
 } from './db.js';
@@ -79,7 +79,7 @@ app.get('/api/drawings/:id/sheet.svg', (c) => {
 app.get('/api/drawings/:id/plan', (c) => {
   const s = getSession(c.req.param('id'));
   if (!s) return c.json({ error: 'not found' }, 404);
-  const els = queryElements(s.db, {
+  let els = queryElements(s.db, {
     drawing_id: s.drawing.id, type: null, subtype: null, floor: null, literal: null,
   }) as Element[];
   if (!els.some((e) => e.bbox)) return c.json({ error: 'no geometry' }, 404);
@@ -97,6 +97,21 @@ app.get('/api/drawings/:id/plan', (c) => {
     });
     return c.json({ viewBox: [0, 0, W, H], background: `/api/drawings/${s.uid}/sheet.svg`, layers: { rows } });
   }
+
+  // IFC models have storeys: one storey at a time, the one with the most drawn objects by default
+  const all = els;
+  const floors = floorsOf(s.db, s.drawing.id).map((f) => ({
+    id: f.id as number, name: f.name as string,
+    n: all.filter((e) => e.floor_id === f.id && e.bbox).length,
+  })).filter((f) => f.n > 0);
+  const wanted = c.req.query('floor');
+  let floor: number | null = null;
+  if (floors.length) {
+    floor = floors.some((f) => String(f.id) === wanted) ? Number(wanted)
+      : floors.reduce((a, b) => (b.n > a.n ? b : a)).id;
+    els = all.filter((e) => e.floor_id === floor);
+  }
+  if (!els.some((e) => e.bbox)) return c.json({ error: 'no geometry' }, 404);
 
   // overall extent -> screen viewBox 1200 x N, the Y axis is flipped
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
@@ -119,12 +134,17 @@ app.get('/api/drawings/:id/plan', (c) => {
   };
 
   const layers: Record<string, any[]> = {
-    walls: [], rooms: [], doors: [], windows: [], fixtures: [], apartments: [],
+    slabs: [], walls: [], rooms: [], doors: [], windows: [], fixtures: [], apartments: [],
+    columns: [], beams: [], stairs: [], railings: [], furniture: [],
   };
   const bucket: Record<string, string> = {
-    wall: 'walls', room: 'rooms', door: 'doors',
-    window: 'windows', fixture: 'fixtures', apartment: 'apartments',
+    wall: 'walls', room: 'rooms', door: 'doors', window: 'windows', fixture: 'fixtures',
+    apartment: 'apartments', slab: 'slabs', column: 'columns', beam: 'beams',
+    stair: 'stairs', railing: 'railings', furniture: 'furniture',
   };
+  // how much of the model is on the plan: say it instead of hiding the gap
+  const drawable = all.filter((e) => bucket[e.type]);
+  const coverage = { drawn: drawable.filter((e) => e.bbox).length, total: drawable.length };
 
   for (const e of els) {
     const key = bucket[e.type];
@@ -137,7 +157,7 @@ app.get('/api/drawings/:id/plan', (c) => {
     layers[key].push(item);
   }
 
-  return c.json({ viewBox: [0, 0, W, H], layers });
+  return c.json({ viewBox: [0, 0, W, H], layers, floors, floor, coverage });
 });
 
 /* ------------------------------------------------------------- question */
@@ -192,7 +212,7 @@ app.post('/api/upload', async (c) => {
   if (f.size > MAX_MB * 1e6) return c.json({ error: `file is larger than ${MAX_MB} MB` }, 413);
 
   const buf = Buffer.from(await f.arrayBuffer());
-  const uid = createHash('sha256').update(kind).update('\0').update(buf).digest('hex').slice(0, 16);
+  const uid = createHash('sha256').update(INDEX_VERSION).update(kind).update('\0').update(buf).digest('hex').slice(0, 16);
 
   // same file again: the index is the cache
   const existing = getSession(uid);
@@ -225,7 +245,7 @@ app.post('/api/upload', async (c) => {
     if (job.finished) return;
     if (timedOut) return finish(job, false, `parsing took longer than ${INDEX_TIMEOUT_S} s: file is too complex for the limit`);
     if (code !== 0) return finish(job, false, 'indexer failed');
-    writeFileSync(metaPath(uid), JSON.stringify({ kind, fileName: name, createdAt: Date.now(), ready: true }));
+    writeFileSync(metaPath(uid), JSON.stringify({ kind, fileName: name, createdAt: Date.now(), ready: true, indexVersion: INDEX_VERSION }));
     const s = getSession(uid);
     if (!s) return finish(job, false, 'nothing was indexed');
     // a structured format that produced no objects failed to parse: say why instead of an empty drawing

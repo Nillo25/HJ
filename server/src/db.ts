@@ -7,6 +7,7 @@
 import Database from 'better-sqlite3';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 export type Kind = 'dxf' | 'ifc' | 'pdf' | 'png';
 export const KINDS: Kind[] = ['dxf', 'ifc', 'pdf', 'png'];
@@ -18,6 +19,21 @@ export const SOURCE_BY_KIND: Record<Kind, string> = {
 
 export const UPLOADS = path.resolve(process.env.UPLOADS_DIR ?? 'uploads');
 const UPLOAD_TTL_H = Number(process.env.UPLOAD_TTL_HOURS ?? 24);
+/**
+ * Hash of the indexer sources. It is part of every upload id, so an index built by an
+ * older parser is never reused: changing the parser invalidates the cache by itself.
+ */
+export const INDEX_VERSION = (() => {
+  const dir = path.resolve('../indexer');
+  const h = createHash('sha256');
+  try {
+    for (const f of readdirSync(dir).filter((n) => n.endsWith('.py') || n.endsWith('.sql')).sort()) {
+      h.update(f).update(readFileSync(path.join(dir, f)));
+    }
+  } catch { /* no indexer next to the server: version stays constant */ }
+  return h.digest('hex').slice(0, 12);
+})();
+
 export const UID_RE = /^[0-9a-f]{16}$/;
 
 export type Element = {
@@ -28,7 +44,7 @@ export type Element = {
   source_ref: string | null; confidence: number; is_primary: number; props: string | null;
 };
 
-export type Meta = { kind: Kind; fileName: string; createdAt: number; ready: boolean };
+export type Meta = { kind: Kind; fileName: string; createdAt: number; ready: boolean; indexVersion?: string };
 export type Session = {
   uid: string; dir: string; dbPath: string; db: Database.Database; meta: Meta;
   drawing: { id: number; name: string; source: string; status: string; capabilities: any };
@@ -66,7 +82,7 @@ export function getSession(uid: string): Session | null {
 export function listSessions(): Session[] {
   if (!existsSync(UPLOADS)) return [];
   return readdirSync(UPLOADS).filter((u) => UID_RE.test(u))
-    .map((u) => getSession(u)).filter((s): s is Session => !!s)
+    .map((u) => getSession(u)).filter((s): s is Session => !!s && s.meta.indexVersion === INDEX_VERSION)
     .sort((a, b) => b.meta.createdAt - a.meta.createdAt);
 }
 

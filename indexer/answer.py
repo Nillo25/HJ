@@ -380,7 +380,8 @@ def evidence_of(rows, con, limit=50):
         kind = "ifc" if ref and len(str(ref)) == 22 else "geom"
         out.append({"kind": kind, "id": r["id"], "ref": ref, "type": r["type"],
                     "subtype": r["subtype"], "label": label,
-                    "floor": floor_name(r["floor_id"]), "page": r["page"],
+                    "floor": floor_name(r["floor_id"]), "floor_id": r["floor_id"],
+                    "page": r["page"],
                     "bbox": r["bbox"], "area": r["area"], "length": r["length"],
                     "volume": r["volume"]})
     return out

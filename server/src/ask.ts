@@ -160,7 +160,7 @@ function evidenceOf(d: Session, rows: Element[], limit = 50) {
   return rows.slice(0, limit).map((r) => ({
     kind: r.source_ref && r.source_ref.length === 22 ? 'ifc' : 'geom',
     id: r.id, ref: r.source_ref, type: r.type, subtype: r.subtype,
-    label: scheduleLabel(r), floor: r.floor_id ? floors.get(r.floor_id) ?? null : null,
+    label: scheduleLabel(r), floor: r.floor_id ? floors.get(r.floor_id) ?? null : null, floor_id: r.floor_id,
     page: r.page, bbox: r.bbox, area: r.area, length: r.length, volume: r.volume,
   }));
 }

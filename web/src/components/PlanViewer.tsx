@@ -10,21 +10,33 @@ const STYLE: Record<string, { fill: string; stroke: string; width: number; label
   windows: { fill: '#bae6fd', stroke: '#0284c7', width: 1.5, label: 'Windows' },
   fixtures: { fill: '#ddd6fe', stroke: '#6d28d9', width: 1.5, label: 'Fixtures' },
   rows: { fill: 'transparent', stroke: 'none', width: 1, label: 'Schedule rows' },
+  slabs: { fill: '#f8fafc', stroke: '#e2e8f0', width: 0.5, label: 'Slabs' },
+  columns: { fill: '#64748b', stroke: '#334155', width: 1, label: 'Columns' },
+  beams: { fill: 'none', stroke: '#94a3b8', width: 0.8, label: 'Beams' },
+  stairs: { fill: '#e2e8f0', stroke: '#64748b', width: 1, label: 'Stairs' },
+  railings: { fill: 'none', stroke: '#94a3b8', width: 0.8, label: 'Railings' },
+  furniture: { fill: '#f1f5f9', stroke: '#94a3b8', width: 0.8, label: 'Furniture' },
 };
-const ORDER = ['rooms', 'apartments', 'walls', 'windows', 'doors', 'fixtures', 'rows'];
+const ORDER = ['slabs', 'rooms', 'apartments', 'walls', 'columns', 'beams', 'stairs', 'railings', 'furniture', 'windows', 'doors', 'fixtures', 'rows'];
 
 /** Draws the parsed plan and marks the elements the answer was computed from. */
-export function PlanViewer({ drawingId, highlight, hover }: { drawingId: string; highlight: Set<number>; hover: number | null }) {
+export function PlanViewer({ drawingId, highlight, hover, floorHint }: { drawingId: string; highlight: Set<number>; hover: number | null; floorHint?: number | null }) {
   const [plan, setPlan] = useState<Plan | null | undefined>(undefined);
+  const [floor, setFloor] = useState<number | null>(null);
   const [off, setOff] = useState<Set<string>>(new Set());
   const [fit, setFit] = useState(true);       // true = zoom to the objects the answer used
 
+  useEffect(() => { setFloor(null); }, [drawingId]);
+  useEffect(() => { if (floorHint != null) setFloor(floorHint); }, [floorHint]);   // follow the answer to its storey
   useEffect(() => {
-    setPlan(undefined);
-    getPlan(drawingId).then(setPlan).catch(() => setPlan(null));
-  }, [drawingId]);
+    getPlan(drawingId, floor).then(setPlan).catch(() => setPlan(null));
+  }, [drawingId, floor]);
 
   const layers = useMemo(() => ORDER.filter(k => plan?.layers[k]?.length), [plan]);
+  const onFloor = useMemo(
+    () => (plan ? Object.values(plan.layers).reduce((n, l) => n + l.filter(it => highlight.has(it.id)).length, 0) : 0),
+    [plan, highlight],
+  );
 
   // bounding box of everything the answer used, so a small answer on a big sheet is readable
   const focus = useMemo(() => {
@@ -52,7 +64,9 @@ export function PlanViewer({ drawingId, highlight, hover }: { drawingId: string;
       <CardHeader>
         <CardTitle>Plan</CardTitle>
         <span className="flex items-center gap-2 text-xs text-slate-500">
-          {highlight.size ? `${highlight.size} highlighted` : 'ask a question to highlight objects'}
+          {highlight.size
+            ? (onFloor === highlight.size ? `${highlight.size} highlighted` : `${onFloor} highlighted here, ${highlight.size} in total`)
+            : 'ask a question to highlight objects'}
           {focus && (
             <button onClick={() => setFit(f => !f)} className="rounded-md border border-slate-300 px-2 py-0.5 text-slate-700 hover:bg-slate-100">
               {fit ? 'Show whole plan' : 'Zoom to answer'}
@@ -61,6 +75,20 @@ export function PlanViewer({ drawingId, highlight, hover }: { drawingId: string;
         </span>
       </CardHeader>
       <CardBody className="space-y-3">
+        {plan.floors && plan.floors.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+            <label htmlFor="floor">Storey</label>
+            <select id="floor" value={plan.floor ?? ''} onChange={e => setFloor(Number(e.target.value))}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-slate-800">
+              {plan.floors.map(f => <option key={f.id} value={f.id}>{f.name || `#${f.id}`} ({f.n})</option>)}
+            </select>
+            {plan.coverage && (
+              <span title="Objects whose shape could be read from the file. The rest are counted but not drawn.">
+                drawn {plan.coverage.drawn} of {plan.coverage.total} objects
+              </span>
+            )}
+          </div>
+        )}
         <svg viewBox={focus && fit ? focus.join(' ') : `0 0 ${w} ${h}`} className="max-h-[32rem] w-full rounded-md border border-slate-200 bg-white" role="img" aria-label="Floor plan with highlighted objects">
           {plan.background && <image href={plan.background} x={0} y={0} width={w} height={h} />}
           {layers.filter(k => !off.has(k)).map(k => (

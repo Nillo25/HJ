@@ -14,6 +14,7 @@ export type Drawing = {
 export type Evidence = {
   kind: string;
   id?: number;
+  floor_id?: number | null;
   ref?: string | null;
   type?: string;
   subtype?: string | null;
@@ -47,6 +48,9 @@ export type Answer = {
 export type Plan = {
   viewBox: [number, number, number, number];
   background?: string;
+  floors?: { id: number; name: string; n: number }[];
+  floor?: number | null;
+  coverage?: { drawn: number; total: number };
   layers: Record<string, { id: number; label?: string | null; polygon?: number[][]; bbox?: number[] }[]>;
 };
 
@@ -63,7 +67,7 @@ async function j<T>(r: Response): Promise<T> {
 
 export const getDrawings = () => fetch('/api/drawings?limit=500').then(r => j<{ drawings: Drawing[] }>(r)).then(d => d.drawings);
 export const getDrawing = (id: string) => fetch(`/api/drawings/${id}`).then(r => j<Drawing>(r));
-export const getPlan = (id: string) => fetch(`/api/drawings/${id}/plan`).then(r => (r.ok ? (r.json() as Promise<Plan>) : null));
+export const getPlan = (id: string, floor?: number | null) => fetch(`/api/drawings/${id}/plan${floor != null ? `?floor=${floor}` : ''}`).then(r => (r.ok ? (r.json() as Promise<Plan>) : null));
 export const getUsage = () => fetch('/api/usage').then(r => j<UsageTotals>(r));
 
 export const ask = (drawingId: string, question: string) =>

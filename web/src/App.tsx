@@ -32,7 +32,7 @@ export default function App() {
     try { setCurrent(await getDrawing(d.id)); } catch { /* keep the list row */ }
   }, []);
 
-  const showPlan = current?.kind === 'dxf' || current?.kind === 'pdf';
+  const showPlan = current?.kind === 'dxf' || current?.kind === 'pdf' || current?.kind === 'ifc';
   const chips = useMemo(() => (current ? (EXAMPLES[current.source] ?? []).slice(0, 6) : []), [current]);
 
   async function run(q: string) {
@@ -52,10 +52,12 @@ export default function App() {
   }
 
   const onSubmit = (e: FormEvent) => { e.preventDefault(); run(question); };
+  // IFC evidence has kind 'ifc' and is drawn by element id like the others
   const highlight = useMemo(
-    () => new Set((answer?.evidence ?? []).filter(e => e.kind === 'geom' && e.id != null).map(e => e.id as number)),
+    () => new Set((answer?.evidence ?? []).filter(e => e.id != null).map(e => e.id as number)),
     [answer],
   );
+  const floorHint = useMemo(() => (answer?.evidence ?? []).find(e => e.floor_id != null)?.floor_id ?? null, [answer]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-5">
@@ -100,10 +102,10 @@ export default function App() {
           {answer && answer.status !== 'refused' && (
             <div className={showPlan ? 'grid gap-5 xl:grid-cols-2' : ''}>
               <EvidenceTable answer={answer} hover={hover} onHover={setHover} />
-              {showPlan && current && <PlanViewer drawingId={current.id} highlight={highlight} hover={hover} />}
+              {showPlan && current && <PlanViewer drawingId={current.id} highlight={highlight} hover={hover} floorHint={floorHint} />}
             </div>
           )}
-          {!answer && showPlan && current && <PlanViewer drawingId={current.id} highlight={highlight} hover={hover} />}
+          {!answer && showPlan && current && <PlanViewer drawingId={current.id} highlight={highlight} hover={hover} floorHint={floorHint} />}
         </main>
       </div>
     </div>
