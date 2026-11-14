@@ -39,6 +39,12 @@ so the same file is parsed once. See `docs/adr/0009`.
 
 ## Run
 
+One command for development (installs npm packages on the first run, finds Python 3.10+, starts the API and the web app):
+
+    npm run dev        # from the repo root; open http://localhost:5173
+
+It reads `server/.env` (optional) and honours `PYTHON_BIN`; Ctrl+C stops both. The steps below are the manual equivalent.
+
     pip install -r indexer/requirements.txt
     cd server && npm i && cp .env.example .env     # add a model key (optional)
     cd ../web && npm i && npm run build            # writes server/public (and copies web-ifc.wasm)
