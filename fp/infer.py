@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -33,8 +34,10 @@ def simplify(poly: np.ndarray, cls: str) -> list:
     return approx.reshape(-1, 2).tolist() if len(approx) >= 3 else poly.tolist()
 
 
+ARC_MIN_PPM = 33.0  # двери по дугам — только если дверь 0.6 м на листе не меньше 20 px
+
 # менять при правках разбора, влияющих на сцену: повторная загрузка того же файла тогда разберёт его заново
-PIPELINE_VERSION = "2026-11-14.inventory"
+PIPELINE_VERSION = "2026-11-14.door-arcs"
 
 THRESHOLDS = json.loads((Path(__file__).parent / "thresholds.json").read_text())
 
@@ -248,6 +251,12 @@ def analyze_sheet(img: np.ndarray, sc: Scene) -> Scene:
     # чертёжный лист без подписей помещений (трубопроводы, конструкции): помещения по стенам, рамки от VLM
     if est.get("px_per_m") and tb.get("sheet_number") and not sheet.get("area_labels"):
         rooms_by_walls(img, sc, sheet)
+    # чертёжный лист (номер вида M-101A, A-2, C01): двери ещё и по дугам открывания — модель обучена на квартирах
+    # и на таких листах видит их слабо. На квартирных планах дуги вредят (53.7% -> 36.6% на train+val eval_set),
+    # поэтому там не включаются. Мелкий масштаб (дверь < 20 px, школа 1:200) — тоже нет: под четверть окружности
+    # такого размера подходят стулья и буквы
+    if (est.get("px_per_m") or 0) >= ARC_MIN_PPM and re.match(r"^[A-Z]{1,3}[-.]?\d", str(tb.get("sheet_number") or "")):
+        add_arc_doors(img, sc)
     # помещения: площади и плинтусы (подписи + заливка по стенам + контуры модели)
     from .spaces import build as build_spaces
     build_spaces(img, sc)
@@ -346,3 +355,40 @@ def rooms_by_walls(img: np.ndarray, sc: Scene, sheet: dict) -> list[dict]:
     sc.meta["wall_rooms"] = keep
     sc.assign_rooms()
     return keep
+
+
+def add_arc_doors(img: np.ndarray, sc: Scene) -> dict:
+    """Второй способ найти двери — дуги открывания (fp.doors_cv). Дверь модели, подтверждённая дугой, —
+    уверенность выше; дуга без двери модели на границе помещения — новая дверь (source="arc")."""
+    from shapely.geometry import Polygon
+    from .doors_cv import find_door_arcs, merge_with_model, near_walls
+    from .scene import Element
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
+    ppm = sc.meta.get("px_per_m")
+    doors = [o for o in sc.objects if o.cls == "door" and o.source != "arc"]
+    door_px = float(np.median([max(np.ptp(np.array(d.polygon), 0)) for d in doors])) if doors else None
+    if not ppm and not door_px:
+        info = {"done": False, "note": "нет масштаба и дверей модели — радиус дуги неизвестен"}
+        sc.meta["door_arcs"] = info
+        return info
+    region = (sc.meta.get("sheet") or {}).get("drawing_bbox")
+    arcs = find_door_arcs(gray, ppm, door_px, region)
+    eff_ppm = ppm or door_px / 0.9
+    walls = [r.shape() for r in sc.rooms] + [o.shape() for o in sc.objects if o.cls == "wall"]
+    walls = [Polygon(w.exterior) if w.geom_type == "Polygon" else w for w in walls]
+    kept = near_walls(arcs, walls, eff_ppm)
+    new, confirmed = merge_with_model(kept, doors, eff_ppm)
+    sc.objects = [o for o in sc.objects if not (o.cls == "door" and o.source == "arc")]
+    for d in doors:
+        if d.id in confirmed:
+            d.conf = max(d.conf, 0.9)
+    n0 = sum(1 for o in sc.objects if o.cls == "door")
+    for i, a in enumerate(new, 1):
+        x0, y0, x1, y1 = a["bbox"]
+        sc.objects.append(Element(f"da{i}", "door", [[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
+                                  0.6, source="arc"))
+    sc.assign_rooms()
+    info = {"done": True, "arcs": len(arcs), "near_walls": len(kept), "confirmed": sorted(confirmed),
+            "added": len(new), "model_doors": n0}
+    sc.meta["door_arcs"] = info
+    return info

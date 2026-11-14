@@ -171,6 +171,21 @@ def count(scene: Scene, cls: str, room: str | None = None) -> Answer:
 
 
 def _count_yolo(scene: Scene, cls: str, room: str | None = None) -> Answer:
+    a = _count_model(scene, cls, room)
+    da = scene.meta.get("door_arcs") or {}
+    if cls == "door" and da.get("done") and isinstance(a.answer, int):
+        # два способа: модель + дуги открывания (fp/doors_cv.py). Калибровка по пограничным детекциям модели
+        # здесь не годится — пограничные кандидаты на чертёжном листе в основном арматура, а двери добирают дуги
+        n_arc = sum(1 for e in a.evidence if e.get("kind") == "arc")
+        n_conf = len(set(da.get("confirmed") or []) & set(a.ids))
+        extra = (f"двери найдены двумя способами: моделью и по дугам открывания (по дугам добавлено {n_arc}, "
+                 f"подтверждено дугой {n_conf})")
+        a.confidence = "medium"
+        a.note = extra
+    return a
+
+
+def _count_model(scene: Scene, cls: str, room: str | None = None) -> Answer:
     if room and not _find_room(scene, room):
         return Answer(0, confidence="low", score=0.3, note=f"комната {room!r} не найдена")
     items = _select(scene, cls, room, True)

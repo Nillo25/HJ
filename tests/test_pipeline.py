@@ -535,3 +535,42 @@ def test_count_routes_between_model_and_inventory(monkeypatch):
     assert query.count(sc, "sink", room="kitchen").answer == 0   # по комнате — только модель
     sc.meta.pop("inventory")
     assert query.count(sc, "floor").answer is None and query.count(sc, "sink").answer == 1
+
+
+def _door_sheet():
+    """Лист 600×400, 50 px/м: стена с проёмом 0.9 м, створка + четверть дуги; рядом полный круг (марка) и текст."""
+    import cv2
+    import numpy as np
+    img = np.full((400, 600, 3), 255, np.uint8)
+    cv2.line(img, (50, 200), (250, 200), (150, 150, 150), 2)          # стена слева от проёма
+    cv2.line(img, (295, 200), (550, 200), (150, 150, 150), 2)         # стена справа (проём 250..295 = 0.9 м)
+    cv2.line(img, (250, 200), (250, 155), (190, 190, 190), 1)         # створка от петли (250,200) вверх
+    cv2.ellipse(img, (250, 200), (45, 45), 0, -90, 0, (220, 220, 220), 1)   # дуга открывания, бледная
+    cv2.circle(img, (430, 300), 40, (0, 0, 0), 1)                    # марка — полный круг, не дверь
+    cv2.putText(img, "CCC OOO", (60, 330), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 2)
+    return img
+
+
+def test_find_door_arcs_finds_faint_swing_not_circles_or_text():
+    import cv2
+    from fp.doors_cv import find_door_arcs
+    arcs = find_door_arcs(cv2.cvtColor(_door_sheet(), cv2.COLOR_BGR2GRAY), 50.0)
+    assert len(arcs) == 1
+    hx, hy = arcs[0]["hinge"]
+    assert abs(hx - 250) <= 3 and abs(hy - 200) <= 3 and abs(arcs[0]["r_m"] - 0.9) <= 0.1
+
+
+def test_arc_doors_join_model_doors():
+    from fp.infer import add_arc_doors
+    from fp.query import count
+    from fp.scene import Scene
+    sq = lambda x, y, s: [(x, y), (x + s, y), (x + s, y + s), (x, y + s)]
+    wall = [(50, 197), (550, 197), (550, 203), (50, 203)]
+    sc = Scene.build("x", 600, 400, [("wall", wall, 0.9), ("door", sq(60, 190, 20), 0.4)], meta={"px_per_m": 50.0})
+    info = add_arc_doors(_door_sheet(), sc)
+    assert info["added"] == 1 and info["confirmed"] == []
+    sc2 = Scene.build("x", 600, 400, [("door", sq(60, 190, 20), 0.4)], meta={"px_per_m": 50.0})
+    sc2.rooms = []
+    assert add_arc_doors(_door_sheet(), sc2)["added"] == 1     # нет ни стен, ни помещений — фильтр не применяется
+    a = count(sc, "door")
+    assert a.answer == 2 and a.confidence == "medium" and "дугам" in a.note
