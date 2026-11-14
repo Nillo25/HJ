@@ -29,7 +29,11 @@ export type Evidence = {
 
 export type UsageItem = { model: string; input_tokens: number; output_tokens: number; cost_usd: number };
 
+export type Alternative = { label: string; answer: number; unit?: string; evidence: Evidence[] };
+
 export type Answer = {
+  question?: string;
+  alternatives?: Alternative[];
   status: 'answered' | 'estimated' | 'refused' | 'needs_clarification';
   answer?: number | string;
   unit?: string;
@@ -58,7 +62,7 @@ export type Plan = {
 export type UsageTotals = {
   questions: number;
   template_hits: number;
-  models: (UsageItem & { calls: number })[];
+  models: (UsageItem & { calls: number; failed_calls?: number })[];
 };
 
 async function j<T>(r: Response): Promise<T> {

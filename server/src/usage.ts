@@ -3,6 +3,9 @@ export type Usage = { model: string; input_tokens: number; output_tokens: number
 
 const totals = new Map<string, Usage & { calls: number }>();
 let questions = 0, templateHits = 0;
+const failed = new Map<string, number>();       // calls that errored: the provider reports no tokens for them
+
+export function recordFailure(model: string) { failed.set(model, (failed.get(model) ?? 0) + 1); }
 
 export function recordUsage(model: string, input_tokens: number, output_tokens: number, cost_usd: number): Usage {
   const t = totals.get(model) ?? { model, input_tokens: 0, output_tokens: 0, cost_usd: 0, calls: 0 };
@@ -14,5 +17,9 @@ export function recordUsage(model: string, input_tokens: number, output_tokens: 
 export function countQuestion(viaTemplate: boolean) { questions++; if (viaTemplate) templateHits++; }
 
 export function usageSnapshot() {
-  return { questions, template_hits: templateHits, models: [...totals.values()] };
+  return {
+    questions, template_hits: templateHits,
+    models: [...totals.values()].map((m) => ({ ...m, failed_calls: failed.get(m.model) ?? 0 })),
+    failed_calls: [...failed.values()].reduce((a, b) => a + b, 0),
+  };
 }

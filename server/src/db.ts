@@ -137,6 +137,13 @@ export function queryElements(db: Database.Database, a: {
 
 const cacheDb = new Database(process.env.CACHE_DB ?? 'cache.db');
 cacheDb.pragma('journal_mode = WAL');
+// version 2: entries are templates with {i} slots. Version 1 stored constants of the first question
+// that was asked and answered every similar question with them: those rows must not be reused.
+const CACHE_VERSION = 2;
+if ((cacheDb.pragma('user_version', { simple: true }) as number) !== CACHE_VERSION) {
+  cacheDb.exec('DROP TABLE IF EXISTS question_cache');
+  cacheDb.pragma(`user_version = ${CACHE_VERSION}`);
+}
 cacheDb.exec(`CREATE TABLE IF NOT EXISTS question_cache (
   template TEXT PRIMARY KEY, fn TEXT NOT NULL, args TEXT NOT NULL)`);
 const cacheGetStmt = cacheDb.prepare('SELECT fn, args FROM question_cache WHERE template = ?');

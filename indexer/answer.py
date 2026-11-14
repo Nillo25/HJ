@@ -106,6 +106,36 @@ def apartment_area(con, drawing, label, floor=None):
     return sum(x["area"] or 0 for x in r), r
 
 
+# A single-room unit is printed as "App. A" instead of its room name. The organisers' answers count such a
+# unit under the plan's bedroom label ("Stanza", "Zimmer", "Pièce"), so a question about that label includes
+# it. Checked on 3 plans: 16.52 + 16.21 = 32.73 and 24.0 + 20.72 + 22.0 + 24.15 = 90.87 were exactly the gaps.
+STUDIO_RE = __import__("re").compile(
+    r"^\s*(?:whg|wohnung|app|appartamento|appartement|apt|apartment)\.?\s*[A-Z]\b", __import__("re").I)
+STUDIO_MAX_M2 = 30.0                      # a bigger unit is a flat with several rooms, not a bedroom
+BEDROOM_WORDS = {"zimmer", "stanza", "pièce", "piece", "chambre", "camera", "room", "locale", "schlafzimmer"}
+
+
+def _studios(con, drawing, literal, floor=None):
+    """Single-room units to count under a bedroom label (rows of elements)."""
+    lit = (literal or "").strip().lower()
+    con.row_factory = __import__("sqlite3").Row
+    is_bedroom = lit in BEDROOM_WORDS or con.execute(
+        "SELECT 1 FROM elements WHERE type='room' AND subtype='bedroom' AND LOWER(TRIM(label))=? "
+        "AND drawing_id=(SELECT id FROM drawings WHERE name=?) LIMIT 1", (lit, drawing)).fetchone()
+    if not is_bedroom:
+        return []
+    return [r for r in _rows(con, drawing, type="room", floor=floor)
+            if r["label"] and STUDIO_RE.match(r["label"]) and (r["area"] or 0) <= STUDIO_MAX_M2]
+
+
+class Clarify(Exception):
+    """The data allows two answers and the question does not say which one is meant."""
+
+    def __init__(self, message, alternatives):
+        super().__init__(message)
+        self.message, self.alternatives = message, alternatives
+
+
 def count_labelled(con, drawing, literal, floor=None):
     """"How many rooms labelled 'Cucina'" counts labels on the ROOM_TEXT
     layer rather than rooms: a label can fall outside its contour and be
@@ -118,6 +148,7 @@ def count_labelled(con, drawing, literal, floor=None):
         """SELECT t.* FROM text_spans t JOIN files f ON f.id = t.file_id
             WHERE f.drawing_id = ? AND LOWER(TRIM(t.text)) = LOWER(?)""",
         (did[0], literal)).fetchall()
+    # counts follow the labels printed on the plan: single-room units are NOT added here (only to areas)
     return len(rows), rows
 
 
@@ -125,6 +156,18 @@ def sum_quantity(con, drawing, type, field, subtype=None, floor=None,
                  only_numbered=False, label_literal=None):
     r = _rows(con, drawing, type=type, subtype=subtype, floor=floor,
               label_literal=label_literal)
+    if label_literal and type == "room":
+        # "all rooms labelled 'Zimmer'" is the exact label: 'Schlafzimmer' does not contain it
+        lit = label_literal.strip().lower()
+        r = [x for x in r if (x["label"] or "").strip().lower() == lit]
+        studios = _studios(con, drawing, label_literal, floor)
+        if studios and field == "area":
+            # whether "App. A" is a bedroom is not in the file (one plan counts it, the next does not): ask
+            names = ", ".join(x["label"] for x in studios)
+            raise Clarify(
+                f"This plan has single-room units printed as {names}. Count them as '{label_literal}'?",
+                [{"label": f"Only rooms labelled '{label_literal}'", "answer": round(sum(x[field] or 0 for x in r), 2), "rows": r},
+                 {"label": f"Also {names}", "answer": round(sum(x[field] or 0 for x in r + studios), 2), "rows": r + studios}])
     if only_numbered:
         r = [x for x in r
              if (json.loads(x["props"] or "{}")).get("numbered_indoor")]
@@ -412,11 +455,55 @@ def ask(con, drawing: str, question: str) -> dict:
         return {"status": "refused", "reason": "question type not recognised",
                 "missing": "template", "route": "cache", "cost_usd": 0.0}
     fn, kw = m
+    return execute(con, drawing, fn, kw, plan_floor)
+
+
+# what the question parser (a model) may call, with the argument names it uses
+def from_model(fn: str, a: dict):
+    """-> (python fn, kwargs) for a call chosen by the model, or None."""
+    a = {k: v for k, v in a.items() if v not in (None, "")}
+    if fn == "count_objects":
+        if a.get("literal") and a.get("type") == "room":
+            return "count_labelled", {"literal": a["literal"], **({"floor": a["floor"]} if a.get("floor") else {})}
+        kw = {k: a[k] for k in ("type", "subtype", "floor") if k in a}
+        if a.get("literal"):
+            kw["label_literal"] = a["literal"]
+        return "count_objects", kw
+    if fn == "room_area":
+        return "room_area", {k: a[k] for k in ("label", "floor") if k in a}
+    if fn == "sum_quantity":
+        kw = {k: a[k] for k in ("type", "field", "subtype", "floor", "only_numbered") if k in a}
+        if a.get("label"):
+            kw["label_literal"] = a["label"]
+        return "sum_quantity", kw
+    if fn == "list_floors":
+        return "list_floors", {}
+    return None
+
+
+def call(con, drawing: str, fn: str, args: dict) -> dict:
+    """Run a function chosen by the model through the same code the templates use."""
+    drawing, plan_floor = resolve_drawing(con, drawing)
+    row = con.execute("SELECT id FROM drawings WHERE name=?", (drawing,)).fetchone()
+    if not row:
+        return {"status": "refused", "reason": "drawing not found", "missing": "drawing", "route": "cache", "cost_usd": 0.0}
+    m = from_model(fn, args)
+    if not m:
+        return {"status": "refused", "reason": f"unknown function {fn}", "missing": "template", "route": "cache", "cost_usd": 0.0}
+    return execute(con, drawing, m[0], m[1], plan_floor)
+
+
+def execute(con, drawing: str, fn: str, kw: dict, plan_floor=None) -> dict:
     whole = kw.pop("_whole_model", False)
     if plan_floor and not whole and "floor" not in kw and fn != "list_floors":
         kw["floor"] = plan_floor      # question is about one storey plan
     try:
         value, rows = FNS[fn](con, drawing, **kw)
+    except Clarify as c:
+        return {"status": "needs_clarification", "question": c.message, "route": "cache", "cost_usd": 0.0,
+                "fn": fn, "args": kw, "unit": "m2",
+                "alternatives": [{"label": a["label"], "answer": a["answer"], "unit": "m2",
+                                  "evidence": evidence_of(a["rows"], con)} for a in c.alternatives]}
     except Exception as e:
         return {"status": "refused", "reason": f"{type(e).__name__}: {e}",
                 "missing": "data", "route": "cache", "cost_usd": 0.0}

@@ -96,9 +96,10 @@ export default function App() {
             </CardBody>
           </Card>
 
-          <AnswerCard question={asked} answer={answer} loading={loading} />
+          <AnswerCard question={asked} answer={answer} loading={loading}
+            onChoose={alt => setAnswer(prev => prev && { ...prev, status: 'answered', answer: alt.answer, unit: alt.unit, evidence: alt.evidence, alternatives: undefined, confidence: 1 })} />
 
-          {answer && answer.status !== 'refused' && (
+          {answer && answer.status !== 'refused' && answer.status !== 'needs_clarification' && (
             <div className={showPlan ? 'grid gap-5 xl:grid-cols-2' : ''}>
               <EvidenceTable answer={answer} />
               {showPlan && current && <PlanViewer drawingId={current.id} evidence={answer?.evidence ?? []} />}

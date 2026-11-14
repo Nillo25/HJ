@@ -1,4 +1,4 @@
-import { unitLabel, type Answer } from '../lib/api';
+import { unitLabel, type Alternative, type Answer } from '../lib/api';
 import { Badge, Card, CardBody, CardHeader, CardTitle } from './ui';
 
 const STATUS = {
@@ -23,7 +23,7 @@ function describe(a: Answer) {
   return `${a.fn}(${args.join(', ')})`;
 }
 
-export function AnswerCard({ question, answer, loading }: { question: string | null; answer: Answer | null; loading: boolean }) {
+export function AnswerCard({ question, answer, loading, onChoose }: { question: string | null; answer: Answer | null; loading: boolean; onChoose?: (alt: Alternative) => void }) {
   if (!question) return null;
   const s = answer ? STATUS[answer.status] ?? STATUS.refused : null;
   const tokens = (answer?.usage ?? []).reduce((n, u) => n + u.input_tokens + u.output_tokens, 0);
@@ -39,7 +39,23 @@ export function AnswerCard({ question, answer, loading }: { question: string | n
       <CardBody className="space-y-3">
         {loading && <p className="text-sm text-slate-500">Working…</p>}
 
-        {answer && answer.status !== 'refused' && (
+        {answer?.status === 'needs_clarification' && (
+          <div className="space-y-2 rounded-md bg-sky-50 p-3 text-sm text-sky-950">
+            <p className="font-medium">{answer.question ?? 'The data allows more than one answer.'}</p>
+            <p className="text-xs text-sky-900">The plan does not say which one you mean, so the number is not guessed. Pick one: its objects are shown on the plan.</p>
+            <div className="flex flex-wrap gap-2">
+              {(answer.alternatives ?? []).map(a => (
+                <button key={a.label} onClick={() => onChoose?.(a)}
+                  className="rounded-md border border-sky-300 bg-white px-3 py-2 text-left text-sm hover:bg-sky-100">
+                  <span className="block font-medium tabular-nums">{a.answer.toLocaleString('en-US')} {unitLabel(a.unit)}</span>
+                  <span className="block text-xs text-slate-600">{a.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {answer && answer.status !== 'refused' && answer.status !== 'needs_clarification' && (
           <div>
             {isText ? (
               <p className="text-lg font-medium leading-snug">{String(answer.answer)}</p>

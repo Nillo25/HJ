@@ -13,6 +13,8 @@ import re as _re
 import group as G
 from labels import classify_text, is_outdoor, norm, subtype_for
 
+MIN_APARTMENT_M2 = 8.0
+
 # "Whg. B", "App. A", "Wohnung C", "Appartamento D" - the apartment letter
 # is written on the plan itself, which beats relying on file order.
 APT_RE = _re.compile(
@@ -169,6 +171,7 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
             if m:
                 letter = m.group(1).upper()
                 break
+        from_plan = letter is not None
         if letter is None:
             letter = chr(ord("A") + i)
 
@@ -177,6 +180,15 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
                    if (r["name"] or r["number"])
                    and not is_outdoor(subtype_for(r["name"] or "", dict_rows))]
 
+        # an outline with no room inside is not an apartment (stair core, shaft), nor is one smaller than
+        # the smallest flat: a 4 m2 outline around a single room is a balcony or a niche
+        if not counted or sum(r["area"] for r in counted) < MIN_APARTMENT_M2:
+            continue
+        # a second outline with the same letter written on the plan is a part of that apartment, not another one
+        # (the answer key counts 2 and gives B = 99.39 on a plan with outlines B = 99.39 and B = 23.0)
+        if from_plan and any(o["type"] == "apartment" and o["label"] == letter and
+                             json.loads(o["props"]).get("from_plan") for o in out):
+            continue
         out.append({
             "type": "apartment",
             "label": letter,
@@ -187,7 +199,7 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
             "props": json.dumps({"outline_area": round(shoelace(p), 4),
                                  "rooms": len(counted),
                                  "rooms_inside": len(inner),
-                                 "letter_from_plan": letter != chr(ord("A") + i)}),
+                                 "letter_from_plan": from_plan, "from_plan": from_plan}),
         })
 
     # --- windows: VERIFIED 100% on 65 files, three polylines per window --
@@ -283,6 +295,7 @@ def parse(path: str, dict_rows: dict) -> list[dict]:
         out.append({"type": "fixture", "subtype": sub, "confidence": conf,
                     "bbox": json.dumps(bb),
                     "props": json.dumps({"room": room_sub, "prims": g["n"],
+                                         "circle": g["has_circle"], "arc": g["has_arc"],
                                          "long": round(long, 3),
                                          "short": round(short, 3),
                                          "aspect": round(aspect, 2)})})

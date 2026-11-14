@@ -10,9 +10,8 @@ import { google } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { execFile } from 'node:child_process';
 import path from 'node:path';
-import { recordUsage, type Usage } from './usage.js';
+import { recordFailure, recordUsage, type Usage } from './usage.js';
 import { cacheGet, cachePut, floorsOf, queryElements, type Element, type Session } from './db.js';
-import { FNS } from './tools.js';
 import { PYTHON } from './py.js';
 
 /** Question parsing model. LLM_PROVIDER=openai|google, LLM_MODEL overrides the default. */
@@ -23,6 +22,32 @@ const MODEL = PROVIDER === 'openai' ? openai(MODEL_ID) : google(MODEL_ID);
 const HAS_KEY = PROVIDER === 'openai'
   ? !!process.env.OPENAI_API_KEY : !!process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
+/**
+ * Every model call goes through here: calls are spaced to stay under the provider's requests-per-minute
+ * limit (LLM_RPM) and a rate-limit error is retried with a pause instead of becoming a wrong refusal.
+ */
+const MIN_GAP_MS = 60000 / Number(process.env.LLM_RPM ?? 40);
+let nextSlot = 0;
+async function gated<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    const now = Date.now();
+    const at = Math.max(now, nextSlot);
+    nextSlot = at + MIN_GAP_MS;
+    if (at > now) await new Promise((r) => setTimeout(r, at - now));
+    try {
+      return await fn();
+    } catch (e: any) {
+      recordFailure(`${PROVIDER}:${MODEL_ID}`);
+      const msg = String(e?.message ?? e) + String(e?.lastError?.message ?? '');
+      if (attempt < 3 && /rate limit|429|rpm|too many/i.test(msg)) {
+        nextSlot = Math.max(nextSlot, Date.now()) + 8000 * (attempt + 1);
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 /** Known question templates live in Python; a hit costs nothing. */
 function pyTemplate(s: Session, question: string): Promise<any | null> {
   return new Promise((resolve) => {
@@ -30,6 +55,19 @@ function pyTemplate(s: Session, question: string): Promise<any | null> {
       path.resolve('../indexer/ask_cli.py'),
       '--db', s.dbPath, '--drawing', s.drawing.name, '--question', question,
     ], { timeout: 20000, maxBuffer: 8e6 }, (err, out) => {
+      if (err) return resolve(null);
+      try { resolve(JSON.parse(out)); } catch { resolve(null); }
+    });
+  });
+}
+
+/** Run a function chosen by the model through the Python code that answers the templates. */
+function pyCall(s: Session, fn: string, args: Record<string, unknown>): Promise<any | null> {
+  return new Promise((resolve) => {
+    execFile(PYTHON, [
+      path.resolve('../indexer/ask_cli.py'),
+      '--db', s.dbPath, '--drawing', s.drawing.name, '--fn', fn, '--args', JSON.stringify(args),
+    ], { timeout: 20000, maxBuffer: 16e6 }, (err, out) => {
       if (err) return resolve(null);
       try { resolve(JSON.parse(out)); } catch { resolve(null); }
     });
@@ -56,7 +94,7 @@ async function report(d: Session, question: string, t0: number, prior: Usage[], 
     return { status: 'refused', reason: 'no facts could be computed for this model', missing: 'data',
              route, cost_usd: priorCost, usage: prior, latency_ms: Date.now() - t0 };
   }
-  const { object, usage } = await generateObject({
+  const { object, usage } = await gated(() => generateObject({
     model: MODEL,
     temperature: 0,
     schema: z.object({
@@ -68,7 +106,7 @@ async function report(d: Session, question: string, t0: number, prior: Usage[], 
       'Copy numbers exactly, never compute new ones, never invent. Answer in the language of the question, ' +
       'compactly, as plain lines. Set enough=false when the facts do not contain the answer.',
     prompt: `Facts:\n${JSON.stringify(facts)}\n\nQuestion: ${question}`,
-  });
+  }));
   const cost = estimateCost(usage);
   const used = [...prior, recordUsage(`${PROVIDER}:${MODEL_ID}`, usage?.promptTokens ?? 0, usage?.completionTokens ?? 0, cost)];
   if (!object.enough) {
@@ -91,8 +129,9 @@ const Query = z.discriminatedUnion('fn', [
     type: z.enum(['room', 'door', 'window', 'fixture', 'apartment', 'wall',
                   'column', 'beam', 'stair', 'slab']),
     subtype: z.string().optional()
-      .describe('смысловой тип: bedroom, kitchen, bathroom, wc, sauna, balcony, ' +
-                'toilet, sink, bathtub, shower'),
+      .describe('type=fixture: toilet (WC bowls, "how many WC/toilets drawn"), sink (washbasins), bathtub, shower. ' +
+                'type=room: bedroom, kitchen, bathroom, wc (a separate WC ROOM), sauna, balcony. ' +
+                'type=door: single, double, sliding.'),
     literal: z.string().optional()
       .describe('ТОЛЬКО если в вопросе подпись взята в кавычки, например ' +
                 "rooms labelled 'Cucina' -> literal: Cucina. Иначе не заполнять."),
@@ -100,7 +139,9 @@ const Query = z.discriminatedUnion('fn', [
   }),
   z.object({
     fn: z.literal('room_area'),
-    label: z.string(),
+    label: z.string().describe(
+      'ONE room. If the question gives a room NUMBER (0.22, 5.03, U1.04) the label is that number and the name in ' +
+      'brackets is ignored. If it names a room with its number in brackets, e.g. "TUALETTRUUM (24-3)", copy all of it.'),
     floor: z.string().optional(),
   }),
   z.object({
@@ -111,6 +152,8 @@ const Query = z.discriminatedUnion('fn', [
     floor: z.string().optional(),
     only_numbered: z.boolean().optional()
       .describe('true для «всех пронумерованных внутренних помещений»'),
+    label: z.string().optional()
+      .describe('only for type=room: sum over the rooms with EXACTLY this printed label, e.g. "all rooms labelled \'Zimmer\'"'),
   }),
   z.object({ fn: z.literal('list_floors') }),
   z.object({ fn: z.literal('report') }).describe('free-form question about a whole IFC model: software, levels, space breakdown, summary'),
@@ -125,11 +168,42 @@ const Query = z.discriminatedUnion('fn', [
 /** «Сколько окон на плане "3.korrus"?» -> «сколько окон на плане {0}» + ["3.korrus"] */
 export function templatize(q: string): { template: string; slots: string[] } {
   const slots: string[] = [];
-  let t = q.trim().toLowerCase();
-  t = t.replace(/['"“”„«»]([^'"“”„«»]+)['"“”„«»]/g, () => `{${slots.push(RegExp.$1) - 1}}`);
-  t = t.replace(/\b\d+([.,]\d+)*\b/g, () => `{${slots.push(RegExp.lastMatch) - 1}}`);
+  // one pass: a quoted label or a number becomes the next slot; digits inside a quoted label stay in it
+  let t = q.trim().toLowerCase().replace(
+    /['"\u201c\u201d\u201e\u00ab\u00bb]([^'"\u201c\u201d\u201e\u00ab\u00bb]+)['"\u201c\u201d\u201e\u00ab\u00bb]|\b\d+(?:[.,]\d+)*\b/g,
+    (m: string, quoted?: string) => `{${slots.push(quoted ?? m) - 1}}`,
+  );
   t = t.replace(/\s+/g, ' ').replace(/[?!.]+$/, '');
   return { template: t, slots };
+}
+
+/**
+ * Turn the arguments of a parsed question into a reusable template: a value copied from a quoted
+ * label or a number becomes {i}. A value copied from the question that is NOT a slot would be frozen
+ * into the template and answer every similar question with it, so such a result is not cached.
+ */
+const FREE_TEXT = new Set(['label', 'floor', 'literal']);
+export function abstractArgs(args: Record<string, unknown>, slots: string[], question: string): Record<string, unknown> | null {
+  const q = question.toLowerCase();
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(args)) {
+    if (typeof v !== 'string') { out[k] = v; continue; }
+    const low = v.toLowerCase();
+    const exact = slots.findIndex((x) => x && x.toLowerCase() === low);
+    if (exact >= 0) { out[k] = `{${exact}}`; continue; }
+    let w = v, hit = false;
+    slots.forEach((x, i) => {
+      if (x && w.toLowerCase().includes(x.toLowerCase())) {
+        w = w.replace(new RegExp(x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'), `{${i}}`);
+        hit = true;
+      }
+    });
+    if (hit) { out[k] = w; continue; }
+    // only free-text arguments can freeze a value of this question into the template; type, subtype and field are enums
+    if (FREE_TEXT.has(k) && low.length > 2 && q.includes(low)) return null;
+    out[k] = v;
+  }
+  return out;
 }
 
 function fill(args: any, slots: string[]) {
@@ -140,29 +214,6 @@ function fill(args: any, slots: string[]) {
       : v;
   }
   return out;
-}
-
-/* ------------------------------------------------------- доказательство */
-
-function scheduleLabel(r: Element): string | null {
-  if (r.type !== 'room_row' && r.type !== 'door_row') return r.label;
-  try {
-    const p = JSON.parse(r.props ?? '{}');
-    const name = p.name ?? p.room_name;
-    return name ? `${r.label} ${name}` : r.label;
-  } catch { return r.label; }
-}
-
-function evidenceOf(d: Session, rows: Element[], limit = 1000) {
-  const floors = new Map<number, string>(
-    floorsOf(d.db, d.drawing.id).map((f) => [f.id, f.name]),
-  );
-  return rows.slice(0, limit).map((r) => ({
-    kind: r.source_ref && r.source_ref.length === 22 ? 'ifc' : 'geom',
-    id: r.id, ref: r.source_ref, type: r.type, subtype: r.subtype,
-    label: scheduleLabel(r), floor: r.floor_id ? floors.get(r.floor_id) ?? null : null, floor_id: r.floor_id,
-    page: r.page, bbox: r.bbox, area: r.area, length: r.length, volume: r.volume,
-  }));
 }
 
 /* ------------------------------------------------------------- главное */
@@ -199,7 +250,7 @@ export async function ask(d: Session, question: string) {
         .map((r) => r.label).filter(Boolean),
     )].slice(0, 120);
 
-    const { object, usage } = await generateObject({
+    const { object, usage } = await gated(() => generateObject({
       model: MODEL,
       schema: Query,
       temperature: 0,
@@ -208,6 +259,9 @@ export async function ask(d: Session, question: string) {
         'Отвечай только выбором функции и аргументов, ничего не вычисляй. ' +
         'Вопрос может быть на любом языке. ' +
         'Если вопрос не ложится ни на одну функцию — выбирай unsupported. ' +
+        'Если вопрос просит сумму, разность или сочетание РАЗНЫХ типов объектов («стены и колонны вместе»), ' +
+        'одной функцией его не посчитать: выбирай unsupported, не отвечай только на часть. ' +
+        'Название помещения копируй из вопроса целиком, вместе с номером в скобках. ' +
         (d.meta.kind === 'ifc'
           ? 'Для IFC-модели описательные вопросы (ПО и версия, перечень, группировка, распределение, ' +
             'самое большое/узкое/высокое, сводка по уровням) — это report, а не unsupported. '
@@ -216,15 +270,17 @@ export async function ask(d: Session, question: string) {
         `Этажи этого чертежа: ${floors.length ? floors.join(' | ') : 'нет'}\n` +
         `Подписи помещений: ${labels.join(' | ') || 'нет'}\n\n` +
         `Вопрос: ${question}`,
-    });
+    }));
     parsed = object;
     cost = estimateCost(usage);
     used.push(recordUsage(`${PROVIDER}:${MODEL_ID}`, usage?.promptTokens ?? 0,
                           usage?.completionTokens ?? 0, cost));
 
-    if (object.fn !== 'unsupported') {
+    if (object.fn !== 'unsupported' && object.fn !== 'report') {
       const { fn, ...args } = object as any;
-      cachePut(template, fn, JSON.stringify(args));
+      // the cache keeps a template, not an answer: values taken from the question must become slots
+      const abstract = abstractArgs(args, slots, question);
+      if (abstract) cachePut(template, fn, JSON.stringify(abstract));
     }
   }
 
@@ -240,39 +296,32 @@ export async function ask(d: Session, question: string) {
   if (parsed.fn === 'report') return report(d, question, t0, used, cost, route);
 
   const { fn, ...args } = parsed;
-  const impl = (FNS as any)[fn];
-  if (!impl) {
-    return { status: 'refused', reason: `неизвестная функция ${fn}`,
-             missing: 'template', route, cost_usd: cost, usage: used,
+  const bad = invalidPair(args);
+  if (bad) {
+    return { status: 'refused', reason: bad, missing: 'template', route, cost_usd: cost, usage: used,
              latency_ms: Date.now() - t0 };
   }
-
-  const { value, rows } = impl({ db: d.db, drawing_id: drawingId, ...args });
-
-  if (value === null) {
-    return { status: 'refused', reason: 'в данных не найдено', missing: 'element',
-             searched: JSON.stringify(args), route, cost_usd: cost, usage: used,
-             latency_ms: Date.now() - t0 };
+  // the function runs in Python, the same code the templates use: one source of truth for the numbers
+  const res = await pyCall(d, fn, args);
+  if (!res) {
+    return { status: 'refused', reason: 'the indexer could not run this call', missing: 'internal',
+             route, cost_usd: cost, usage: used, latency_ms: Date.now() - t0 };
   }
+  return { ...res, route, cost_usd: cost, usage: used, latency_ms: Date.now() - t0 };
+}
 
-  const unit = fn === 'room_area' || args.field === 'area' ? 'm2' : 'count';
-  const confidence = rows.length
-    ? Math.min(...rows.map((r: Element) => r.confidence ?? 1))
-    : 1;
-
-  return {
-    status: confidence >= 1 ? 'answered' : 'estimated',
-    answer: unit === 'm2' ? Math.round(value * 100) / 100 : value,
-    unit,
-    confidence,
-    route,
-    evidence: evidenceOf(d, rows),
-    cost_usd: cost,
-    usage: used,
-    latency_ms: Date.now() - t0,
-    fn,
-    args,
-  };
+/** The model may combine a type with a subtype that cannot exist: answering 0 for it would be a wrong answer. */
+const SUBTYPES: Record<string, string[]> = {
+  fixture: ['toilet', 'sink', 'bathtub', 'shower', 'other'],
+  door: ['single', 'double', 'sliding', 'opening'],
+  room: ['bedroom', 'kitchen', 'bathroom', 'wc', 'sauna', 'balcony', 'corridor', 'living', 'storage', 'technical', 'other'],
+};
+function invalidPair(a: any): string | null {
+  if (!a.subtype || !a.type) return null;
+  const ok = SUBTYPES[a.type];
+  if (!ok) return `no subtypes are defined for ${a.type}`;
+  if (a.type === 'fixture' && a.subtype === 'wc') { a.subtype = 'toilet'; return null; }   // the one unambiguous synonym
+  return ok.includes(a.subtype) ? null : `"${a.subtype}" is not a known kind of ${a.type}`;
 }
 
 /** Грубая оценка; для панели стоимости хватает. */

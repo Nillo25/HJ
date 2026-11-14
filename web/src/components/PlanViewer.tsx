@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getPlan, type Evidence, type Plan } from '../lib/api';
 import { Card, CardBody, CardHeader, CardTitle, cn } from './ui';
 
@@ -45,6 +45,10 @@ export function PlanViewer({ drawingId, evidence }: { drawingId: string; evidenc
   const [floor, setFloor] = useState<number | null>(null);
   const [off, setOff] = useState<Set<string>>(new Set());
   const [fit, setFit] = useState(true);
+  const [view, setView] = useState<number[] | null>(null);   // user pan/zoom; null = automatic
+  const svgRef = useRef<SVGSVGElement>(null);
+  const wheelRef = useRef<(e: WheelEvent) => void>(() => {});
+  const drag = useRef<{ x: number; y: number; vb: number[] } | null>(null);
 
   // number of each found object = its row in the evidence table
   const numbers = useMemo(() => {
@@ -65,7 +69,15 @@ export function PlanViewer({ drawingId, evidence }: { drawingId: string; evidenc
   }, [evidence]);
   const undrawn = useMemo(() => evidence.filter(e => !e.bbox).length, [evidence]);
 
-  useEffect(() => { setFloor(null); }, [drawingId]);
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const h = (e: WheelEvent) => wheelRef.current(e);
+    el.addEventListener('wheel', h, { passive: false });            // React's onWheel is passive: preventDefault would be ignored
+    return () => el.removeEventListener('wheel', h);
+  }, [plan]);
+  useEffect(() => { setFloor(null); setView(null); }, [drawingId]);
+  useEffect(() => { setView(null); }, [floor, fit, numbers]);          // a new answer or storey resets the camera
   // follow the answer to the storey that has most of the found objects
   useEffect(() => {
     if (!byFloor.size) return;
@@ -100,8 +112,34 @@ export function PlanViewer({ drawingId, evidence }: { drawingId: string; evidenc
   if (!plan) return null;
 
   const [, , w, h] = plan.viewBox;
-  const vb = focus && fit ? focus : [0, 0, w, h];
+  const auto = focus && fit ? focus : [0, 0, w, h];
+  const vb = view ?? auto;
   const r = Math.max(vb[2], vb[3]) * 0.015;            // badge radius follows the zoom
+  // wheel zooms around the cursor, drag pans, double click goes back to the automatic view
+  const toWorld = (e: { clientX: number; clientY: number }, v: number[]): [number, number] => {
+    const b = svgRef.current!.getBoundingClientRect();
+    const scale = Math.max(v[2] / b.width, v[3] / b.height);          // preserveAspectRatio: meet
+    const cx = v[0] + v[2] / 2, cy = v[1] + v[3] / 2;
+    return [cx + (e.clientX - (b.left + b.width / 2)) * scale, cy + (e.clientY - (b.top + b.height / 2)) * scale];
+  };
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    const f = e.deltaY > 0 ? 1.2 : 1 / 1.2;
+    const [px, py] = toWorld(e, vb);
+    const nw = Math.min(Math.max(vb[2] * f, w * 0.01), w * 4), nh = nw * (vb[3] / vb[2]);
+    const k = nw / vb[2];
+    setView([px - (px - vb[0]) * k, py - (py - vb[1]) * k, nw, nh]);
+  };
+  wheelRef.current = onWheel;
+  const onDown = (e: React.PointerEvent) => { (e.target as Element).setPointerCapture?.(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, vb: [...vb] }; };
+  const onMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d) return;
+    const b = svgRef.current!.getBoundingClientRect();
+    const scale = Math.max(d.vb[2] / b.width, d.vb[3] / b.height);
+    setView([d.vb[0] - (e.clientX - d.x) * scale, d.vb[1] - (e.clientY - d.y) * scale, d.vb[2], d.vb[3]]);
+  };
+  const onUp = () => { drag.current = null; };
   const toggle = (k: string) => setOff(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
   const anyFound = numbers.size > 0;
 
@@ -145,7 +183,9 @@ export function PlanViewer({ drawingId, evidence }: { drawingId: string; evidenc
             {undrawn} of {evidence.length} found objects have no readable shape in the file: they are counted and listed in the table, but not marked on the plan.
           </p>
         )}
-        <svg viewBox={vb.join(' ')} className="max-h-[32rem] w-full rounded-md border border-slate-200 bg-white" role="img" aria-label="Plan with the found objects marked">
+        <svg ref={svgRef} viewBox={vb.join(' ')} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
+          onDoubleClick={() => setView(null)} style={{ touchAction: 'none', cursor: drag.current ? 'grabbing' : 'grab' }}
+          className="max-h-[32rem] w-full rounded-md border border-slate-200 bg-white" role="img" aria-label="Plan with the found objects marked; scroll to zoom, drag to pan, double click to reset">
           {plan.background && <image href={plan.background} x={0} y={0} width={w} height={h} opacity={anyFound ? 0.55 : 1} />}
           {layers.filter(k => !off.has(k)).map(k => (
             <g key={k} opacity={anyFound ? 0.4 : 1}>

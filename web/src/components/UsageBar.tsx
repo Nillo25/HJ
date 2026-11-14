@@ -22,7 +22,7 @@ export function UsageBar({ refreshKey }: { refreshKey: number }) {
       <span><b className="tabular-nums">${usd.toFixed(4)}</b></span>
       {u.models.map(m => (
         <Badge key={m.model} tone="blue">
-          {m.model} · {m.calls} call{m.calls === 1 ? '' : 's'} · {m.input_tokens.toLocaleString('en-US')} in / {m.output_tokens.toLocaleString('en-US')} out
+          {m.model} · {m.calls} call{m.calls === 1 ? '' : 's'} · {m.input_tokens.toLocaleString('en-US')} in / {m.output_tokens.toLocaleString('en-US')} out{m.failed_calls ? ` · ${m.failed_calls} failed (no tokens reported)` : ''}
         </Badge>
       ))}
       {!u.models.length && <Badge tone="green">no model calls yet</Badge>}
