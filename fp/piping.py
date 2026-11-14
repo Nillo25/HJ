@@ -179,9 +179,22 @@ def _not_walls(segs, walls):
     return out
 
 
-def build(img: np.ndarray, sc, items: list[dict]) -> dict:
-    """Трубы по подписям + арматура по маркам. items — из fp.sheet.read_piping."""
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
+def lines_gray(full: np.ndarray, w: int, h: int) -> np.ndarray:
+    """Лист полного разрешения -> серое w×h без потери тонких линий: минимум по ячейке, затем усреднение.
+    Обычное уменьшение (INTER_AREA) в 5 раз превращает линию в 1 px в светло-серую (>200), и трубы пропадают:
+    M-101A 10200 px — 9 участков вместо 81 на той же картинке в 2048 px."""
+    g = cv2.cvtColor(full, cv2.COLOR_BGR2GRAY) if full.ndim == 3 else full
+    k = int(np.ceil(g.shape[1] / w))
+    if k > 1:
+        g = cv2.erode(g, np.ones((k, k), np.uint8))
+    return cv2.resize(g, (w, h), interpolation=cv2.INTER_AREA)
+
+
+def build(img: np.ndarray, sc, items: list[dict], gray: np.ndarray | None = None) -> dict:
+    """Трубы по подписям + арматура по маркам. items — из fp.sheet.read_piping.
+    gray — картинка для поиска линий (lines_gray от полного разрешения), иначе img."""
+    if gray is None:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
     ppm = sc.meta["px_per_m"]
     region = (sc.meta.get("sheet") or {}).get("drawing_bbox")
     walls = _wall_lines(sc)

@@ -46,7 +46,7 @@ CROP_PX = 320             # crop resized to this for the LLM
 BATCH = 16
 MODEL = os.environ.get("EXP_MODEL", "claude-opus-5-5")
 OUT = ROOT / "out" / "exp_doors"
-SCENE_DIRS = {"M-101A": "TEST-1-cc39304e7d", "S-100F": "TEST-2-508c207e8d", "school-fragment": "TEST-4-20615c86be"}
+SCENE_DIRS = {"M-101A": "TEST-1-b25805c1c7", "S-100F": "TEST-2-508c207e8d", "school-fragment": "TEST-4-20615c86be"}
 spent = {"usd": 0.0}
 
 

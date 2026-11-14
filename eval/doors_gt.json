@@ -1,8 +1,10 @@
 {
   "_note": "Hand-labelled door centres in ORIGINAL image pixels (14.11.2026). A double door = 1 door (one doorway). px_per_m: scale of the original image. region: only detections/labels with centre inside count (null = whole image).",
   "sheets": {
-    "M-101A": {"image": "TEST-1.webp", "px_per_m": 49.6, "region": null,
-      "doors": [[370, 190], [170, 290], [255, 415], [168, 555], [330, 990], [1350, 840]]},
+    "M-101A": {"image": "TEST-1.png", "px_per_m": 247.0, "region": null,
+      "doors": [[1843, 946], [847, 1445], [1270, 2067], [837, 2765], [1644, 4931], [6724, 4184]],
+      "_doors_2048": "same doors on the old 2048 px copy TEST-1.webp (px_per_m 49.6)",
+      "doors_old_2048": [[370, 190], [170, 290], [255, 415], [168, 555], [330, 990], [1350, 840]]},
     "S-100F": {"image": "TEST-2.png", "px_per_m": 388.0, "region": null, "doors": []},
     "school-fragment": {"image": "TEST-4.png", "px_per_m": 118.1, "region": [1090, 1630, 3660, 4050],
       "doors": [[1143, 1955], [1587, 1896], [1695, 1984], [1801, 1984], [2147, 2002], [2368, 2109], [2370, 1650],

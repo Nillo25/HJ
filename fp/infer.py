@@ -38,7 +38,7 @@ ARC_MIN_PPM = 33.0  # двери по дугам — только если дв�
 WALL_ROOMS_MIN_PPM = 20.0  # помещения по стенам (рамки от ИИ) — только если комната 3 м на листе ≥ 60 px
 
 # менять при правках разбора, влияющих на сцену: повторная загрузка того же файла тогда разберёт его заново
-PIPELINE_VERSION = "2026-11-14.envelope6+sheet-tiles-door-verify+frame+mep-walls"
+PIPELINE_VERSION = "2026-11-14.envelope6+sheet-tiles-door-verify+frame+mep-walls+fullres-pipes+label-room-types"
 
 THRESHOLDS = json.loads((Path(__file__).parent / "thresholds.json").read_text())
 
@@ -333,13 +333,17 @@ def analyze_sheet(img: np.ndarray, sc: Scene, full: np.ndarray | None = None, f:
     title = str(tb.get("drawing_title") or "").upper()
     if drawing_sheet and ("PIPING" in title or "PIPE" in title or str(tb.get("sheet_number") or "").upper().startswith(("M", "P"))):
         if (est.get("px_per_m") or 0) >= ARC_MIN_PPM:
-            add_piping(img, sc)
+            add_piping(img, sc, full)
         else:  # причина пропуска — чтобы чат не принял такую сцену за разобранную старой версией
             sc.meta["piping"] = {"error": f"масштаб {est.get('px_per_m') or 0:.1f} px/м мельче {ARC_MIN_PPM:g}: "
                                           "двойные линии труб не различить"}
     # помещения: площади и плинтусы (подписи + заливка по стенам + контуры модели)
     from .spaces import build as build_spaces
     build_spaces(img, sc)
+    # тип помещения на чертёжном листе — по подписи на плане, а не по классу модели (обучена на квартирах:
+    # на школе C01 «Group Room» стал спальней). Квартиры не трогаем — там ответы идут через опись
+    if drawing_sheet:
+        sc.meta["room_types_from_labels"] = room_types_from_labels(sc, sheet)
     # опись плана: один вызов сильной модели — сколько чего по 12 типам вопросов (fp/inventory.py);
     # на какие вопросы она отвечает, а где только сверяет YOLO — fp/route.json
     if os.environ.get("FP_INVENTORY", "1") != "0":
@@ -383,6 +387,53 @@ _ROOM_WORDS = {"room_bath": ("toilet", "restroom", "bath", "wc", "lavatory", "sh
 def _room_cls(name: str) -> str:
     n = name.lower()
     return next((c for c, words in _ROOM_WORDS.items() if any(w in n for w in words)), "room_other")
+
+
+# только для типа по подписи (room_types_from_labels): жилые типы, которых нет в _ROOM_WORDS
+_LABEL_EXTRA = {"room_bedroom": ("bedroom", "dormitory", "sleeping", "спальн"),
+                "room_living": ("living", "lounge", "гостин"),
+                "room_outdoor": ("balcony", "terrace", "балкон", "террас")}
+
+
+def _label_cls(name: str) -> str:
+    n = name.lower()
+    # залы — не прихожая, хотя в названии «hall»
+    if re.search(r"multi[- ]?purpose|sports|assembly|dining|lecture|concert|exhibition|main hall", n):
+        return "room_other"
+    for c, words in _LABEL_EXTRA.items():
+        if any(w in n for w in words):
+            return c
+    return _room_cls(name)
+
+
+def room_types_from_labels(sc: Scene, sheet: dict) -> dict:
+    """Тип комнаты модели = тип по подписи внутри неё (ближайшей к центру). Подписей внутри нет, а на листе
+    они есть — тип модели не подтверждён, ставим «прочее». Без подписей на листе ничего не меняем."""
+    from shapely.geometry import Point
+    labels = [lb for lb in sheet.get("room_labels") or sheet.get("area_labels") or [] if lb.get("text")]
+    if not labels:
+        return {"done": False, "note": "на листе нет подписей помещений"}
+    changed = []
+    counters: dict = {}
+    for r in sc.rooms:
+        if r.source != "yolo":
+            continue
+        shp = r.shape()
+        inside = [(Point(lb["x"], lb["y"]).distance(shp.centroid), lb["text"]) for lb in labels
+                  if shp.buffer(10).contains(Point(lb["x"], lb["y"]))]
+        text = min(inside)[1] if inside else None
+        new = _label_cls(text) if text else "room_other"
+        if new != r.cls:
+            changed.append({"id": r.id, "was": r.cls, "now": new, "label": text})
+            r.cls = new
+    if changed:
+        # id по типу (bedroom_1 -> other_7): нумерация заново, привязка объектов к комнатам — тоже
+        for r in sc.rooms:
+            t = r.cls.removeprefix("room_")
+            counters[t] = counters.get(t, 0) + 1
+            r.id = f"{t}_{counters[t]}"
+        sc.assign_rooms()
+    return {"done": True, "changed": changed}
 
 
 def rooms_by_walls(img: np.ndarray, sc: Scene, sheet: dict) -> list[dict]:
@@ -527,10 +578,11 @@ def add_glazing_windows(img: np.ndarray, sc: Scene) -> dict:
     return info
 
 
-def add_piping(img: np.ndarray, sc: Scene) -> dict:
+def add_piping(img: np.ndarray, sc: Scene, full: np.ndarray | None = None) -> dict:
     """Трубы по диаметрам и арматура по маркам (fp.piping). Подписи читает ИИ по фрагментам рамки чертежа,
-    расширенной вправо: подписи главных коллекторов стоят на полях."""
-    from .piping import build
+    расширенной вправо: подписи главных коллекторов стоят на полях. full — лист в полном разрешении:
+    линии ищутся по нему (уменьшенному без потери тонких линий), если он заметно больше img."""
+    from .piping import build, lines_gray
     from .scene import Element
     from .sheet import read_piping
     h, w = img.shape[:2]
@@ -541,7 +593,9 @@ def add_piping(img: np.ndarray, sc: Scene) -> dict:
     except Exception as e:  # noqa: BLE001
         sc.meta["piping"] = {"error": f"{type(e).__name__}: {e}"}
         return sc.meta["piping"]
-    p = build(img, sc, items)
+    gray = lines_gray(full, w, h) if full is not None and full.shape[1] >= 1.5 * w else None
+    p = build(img, sc, items, gray)
+    p["lines_from_full_res"] = gray is not None
     p["cost_usd"] = round(cost, 6)
     p["items"] = items
     sc.meta["piping"] = p
