@@ -224,6 +224,21 @@ def _worst(results: list[Answer]) -> str | None:
     return min((a.confidence for a in rs), key=order.get) if rs else None
 
 
+def _space_name(scene: Scene, message: str) -> str | None:
+    """Название помещения из экспликации, которое целиком есть в вопросе (самое длинное). Короткие (< 5 букв:
+    «WC», «Lift») — только если вопрос и есть это название, чтобы «сколько WC» оставалось подсчётом."""
+    t = " " + re.sub(r"[^\w\s-]", " ", message.lower().replace("ё", "е")) + " "
+    best = None
+    for sp in scene.meta.get("spaces") or []:
+        n = (sp.get("name") or "").lower().replace("ё", "е").strip()
+        if not n:
+            continue
+        hit = f" {n} " in t if len(n) >= 5 else t.strip() == n
+        if hit and (best is None or len(n) > len(best)):
+            best = sp["name"]
+    return best
+
+
 def chat(scene: Scene, message: str, history: list[dict] | None = None, use_llm: bool | None = None) -> dict:
     t0 = time.perf_counter()
     rule = parse_rule(message)
@@ -239,6 +254,13 @@ def chat(scene: Scene, message: str, history: list[dict] | None = None, use_llm:
     if rule and rule[0] not in ("clear", "legend") and (re.search(r"легенд|legend", low) or
                                                         any(w in low for w in legend_words)):
         rule = None
+    # название помещения из экспликации («Multi-Purpose Hall», «Staff Office») — показать его, с площадью
+    # и плинтусом; правила иначе видят в «Hall» класс «прихожая», а ИИ искал название в легенде
+    sp_name = _space_name(scene, message)
+    if sp_name and (rule is None or (rule[0] in ("count", "highlight", "area") and
+                                     str(rule[1].get("cls") or rule[1].get("room") or "").replace("room_", "")
+                                     in ("entry", "bath", "kitchen", "bedroom", "living", "storage", "outdoor", "other", "room", ""))):
+        rule = ("rooms", {"name": sp_name})
     if rule:
         name, args = rule
         a = call(scene, name, args)
@@ -332,6 +354,12 @@ def _system_prompt(scene: Scene) -> str:
             "For anything printed on the sheet (room counts, square footage, notes, title block) call legend() and "
             "answer from its tables; to show a legend colour on the plan call legend(label). "
             "Detected 'zone' objects are coloured areas, not rooms.")
+    names = sorted({sp["name"] for sp in scene.meta.get("spaces") or [] if sp.get("name")})
+    spaces_line = ""
+    if names:
+        spaces_line = (f"\nNamed rooms on the sheet (room schedule): {names[:80]}. For a named room (show it, its "
+                       "area or baseboard) call rooms(name) with that name — not legend and not list_rooms "
+                       "(list_rooms are the model's unnamed rooms).")
     return (
         "You answer questions about one floor plan sheet. The plan is already recognised into a scene graph; "
         "you cannot see pixels. Get every number, id and confidence from the tools - never estimate or invent.\n"
@@ -341,7 +369,7 @@ def _system_prompt(scene: Scene) -> str:
         "- Keep it to one or two short sentences with the number. Do not mention scores, element ids or tool names "
         "unless the user asks.\n"
         "- If the tool result has confidence low, add a short request to check the result on the plan.\n"
-        f"Plan summary: objects {json.dumps(counts, ensure_ascii=False)}; rooms: {rooms}.{sheet_line}"
+        f"Plan summary: objects {json.dumps(counts, ensure_ascii=False)}; rooms: {rooms}.{sheet_line}{spaces_line}"
     )
 
 

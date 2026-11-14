@@ -697,3 +697,21 @@ def test_scene_save_handles_numpy_values(tmp_path):
     sc.meta["piping"] = {"a0": np.int32(5), "w": np.float64(1.5), "arr": np.array([1, 2])}
     sc.save(tmp_path)
     assert Scene.load(tmp_path).meta["piping"] == {"a0": 5, "w": 1.5, "arr": [1, 2]}
+
+
+def test_room_name_from_schedule_is_shown_by_rules():
+    from fp.chat import chat
+    from fp.scene import Scene
+    sq = lambda x, y, s: [(x, y), (x + s, y), (x + s, y + s), (x, y + s)]
+    sc = Scene.build("x", 500, 500, [("toilet", sq(10, 10, 20), 0.97)])
+    mk = lambda i, n, a: {"id": f"sp{i}", "name": n, "ok": True, "area_m2": a, "area_source": "контур модели",
+                          "baseboard_m": 10.0, "baseboard_note": None, "confidence": "medium"}
+    sc.meta["spaces"] = [mk(1, "Multi-Purpose Hall", 237.8), mk(2, "Group Room", 20.0), mk(3, "Staff Room", 15.0),
+                         mk(4, "Toilets", 12.0)]
+    r = chat(sc, "Multi-Purpose Hall", use_llm=False)
+    assert r["parsed_by"] == "cache" and r["calls"][0]["tool"] == "rooms" and "237.8" in r["reply"]
+    assert r["action"] == {"type": "highlight", "ids": ["sp1"]}
+    g = chat(sc, "покажи Group Room", use_llm=False)
+    assert g["action"]["ids"] == ["sp2"]                     # не все «…Room»
+    t = chat(sc, "how many toilets", use_llm=False)
+    assert t["calls"][0]["tool"] == "count"                  # подсчёт унитазов остаётся подсчётом

@@ -454,8 +454,11 @@ def rooms(scene: Scene, name: str | None = None) -> Answer:
         return Answer([], confidence="low", score=0.3, note=scene.meta.get("spaces_note") or "помещений не найдено")
     rows = sp
     if name:
+        # точное название -> все слова запроса -> любое общее слово («Group Room» не должен найти все «…Room»)
         w = _words(name) or {name.lower()}
-        rows = [r for r in sp if w & _words(r["name"]) or name.lower() in r["name"].lower()]
+        rows = ([r for r in sp if r["name"].lower().strip() == name.lower().strip()]
+                or [r for r in sp if w <= _words(r["name"])]
+                or [r for r in sp if w & _words(r["name"]) or name.lower() in r["name"].lower()])
         if not rows:
             return Answer([], confidence="low", score=0.3,
                           note=f"помещения {name!r} нет; есть: {', '.join(r['name'] for r in sp)}")
