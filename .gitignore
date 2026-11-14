@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.db
+*.db-wal
+*.db-shm
+uploads/
+__pycache__/
+.venv/
+.DS_Store
+unknown_labels.txt
+data/
