@@ -116,6 +116,8 @@ async def upload(file: UploadFile = File(...), force: bool = False):
             raise HTTPException(400, str(e))
     sc.meta.update(file_sha256=sha, pipeline=pipe, source_image=file.filename or sc.meta.get("source_image"))
     sc.save(SCENES / plan_id)
+    if os.environ.get("FP_STOA") == "1":  # оригинал загрузки для stoa/: её цифры измерены на исходных картинках
+        (SCENES / plan_id / f"src_{plan_id}{suffix}").write_bytes(data)
     return {"id": plan_id, "cached": False}
 
 
@@ -142,6 +144,14 @@ class ChatIn(BaseModel):
 @app.post("/api/plans/{plan_id}/chat")
 def chat_ep(plan_id: str, body: ChatIn):
     sc = Scene.load(_dir(plan_id))
+    if os.environ.get("FP_STOA") == "1":  # вопросы-подсчёты Stoa по всему плану -> stoa/ (см. MERGE_STOA.md)
+        from stoa import hook
+        try:
+            r = hook.answer(_dir(plan_id), body.message)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(500, f"stoa: {type(e).__name__}: {e}")
+        if r:
+            return r
     try:
         return chat(sc, body.message, body.history)
     except Exception as e:  # noqa: BLE001 — показываем ошибку в чате, а не 500 без текста
