@@ -6,13 +6,13 @@ let questions = 0, templateHits = 0;
 
 /**
  * Daily spending cap on the model (UTC day, whole server). Questions that need no model keep working when it is reached.
- * LLM_DAILY_BUDGET_USD, 0 = no cap.
+ * LLM_DAILY_BUDGET (same currency as LLM_PRICE_IN/OUT), 0 = no cap.
  */
-const BUDGET = Number(process.env.LLM_DAILY_BUDGET_USD ?? 20);
+const BUDGET = Number(process.env.LLM_DAILY_BUDGET ?? process.env.LLM_DAILY_BUDGET_USD ?? 20);
 let day = new Date().toISOString().slice(0, 10);
 let spent = 0;
 export class BudgetError extends Error {
-  constructor() { super(`The daily model budget ($${BUDGET}) is used up: questions that need the model resume tomorrow (UTC). Questions answered from the parsed file still work.`); }
+  constructor() { super(`The daily model budget (€${BUDGET}) is used up: questions that need the model resume tomorrow (UTC). Questions answered from the parsed file still work.`); }
 }
 export function assertBudget() {
   const today = new Date().toISOString().slice(0, 10);

@@ -71,6 +71,22 @@ export function rateLimit(name: string, perMin: number): MiddlewareHandler {
   };
 }
 
+/** At most `perDay` requests per client address per UTC day (counted in memory, reset on restart). Private addresses are exempt. */
+export function dailyLimit(name: string, perDay: number): MiddlewareHandler {
+  const counts = new Map<string, { day: string; n: number }>();
+  return async (c, next) => {
+    if (perDay <= 0) return next();
+    const ip = clientIp(c);
+    if (!LIMIT_PRIVATE && isPrivateIp(ip)) return next();
+    const day = new Date().toISOString().slice(0, 10);
+    let e = counts.get(ip);
+    if (!e || e.day !== day) { if (counts.size > 50_000) counts.clear(); e = { day, n: 0 }; counts.set(ip, e); }
+    if (e.n >= perDay) return c.json({ error: `Daily limit reached: ${perDay} ${name} requests per day from one address. It resets at 00:00 UTC.` }, 429);
+    e.n++;
+    return next();
+  };
+}
+
 /** Lets `n` jobs run at once; the rest wait their turn. */
 export class Semaphore {
   private waiting: (() => void)[] = [];

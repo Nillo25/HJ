@@ -15,7 +15,7 @@ import {
   type Element, type Kind, type Session,
 } from './db.js';
 import { ask } from './ask.js';
-import { Semaphore, limit, rateLimit } from './limits.js';
+import { Semaphore, dailyLimit, limit, rateLimit } from './limits.js';
 import { PYTHON } from './py.js';
 import { BudgetError, countQuestion, usageSnapshot } from './usage.js';
 
@@ -32,6 +32,7 @@ const app = new Hono();
 // flood protection (see limits.ts): per address on what costs something, body sizes, parallel parsing
 app.use('/api/ask', bodyLimit({ maxSize: 16 * 1024, onError: (c) => c.json({ error: 'The question is too long.' }, 413) }));
 app.use('/api/ask', rateLimit('question', limit('RATE_ASK_PER_MIN', 60)));
+app.use('/api/ask', dailyLimit('question', limit('RATE_ASK_PER_DAY', 50)));
 app.use('/api/upload', bodyLimit({ maxSize: (MAX_MB + 1) * 1e6, onError: (c) => c.json({ error: `The file is larger than ${MAX_MB} MB.` }, 413) }));
 app.use('/api/upload', rateLimit('upload', limit('RATE_UPLOAD_PER_MIN', 6)));
 const slots = new Semaphore(limit('MAX_PARALLEL_INDEX', 2));

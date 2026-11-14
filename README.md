@@ -62,7 +62,8 @@ volume `/data` (`UPLOADS_DIR`, `CACHE_DB`). The model key and prices come from t
 | `RATE_ASK_PER_MIN` | 60 | questions per minute per client address (token bucket, burst of the same size) |
 | `RATE_UPLOAD_PER_MIN` | 6 | uploads per minute per client address |
 | `MAX_PARALLEL_INDEX` | 2 | files parsed at once; the others wait ("queued") |
-| `LLM_DAILY_BUDGET_USD` | 20 | spending cap on the model per UTC day; questions that need no model keep working |
+| `RATE_ASK_PER_DAY` | 50 | questions per day per client address (UTC day); public addresses only |
+| `LLM_DAILY_BUDGET` | 20 | spending cap on the model per UTC day, in the currency of `LLM_PRICE_IN/OUT` (set them in EUR); questions that need no model keep working |
 | `UPLOADS_MAX_GB` | 5 | disk quota for uploads: the oldest are removed to make room |
 | `UPLOAD_MAX_MB` | 100 | file size |
 
