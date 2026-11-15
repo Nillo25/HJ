@@ -63,7 +63,7 @@ raster plans (`raster/`: CPU torch, YOLO weights checked against their sha256). 
 memory. Uploads, the question cache and raster scenes live in `/data` (`UPLOADS_DIR`, `CACHE_DB`, `FP_SCENES`). Keys come from the
 environment, never from the image: ours (`LLM_PROVIDER`, `LLM_MODEL`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `LLM_PRICE_IN/OUT`, `LLM_RPM`) and
 theirs (`ANTHROPIC_API_KEY`, optional `FP_*` of `raster/README.md`). Other settings: `UPLOAD_MAX_MB` (100), `INDEX_TIMEOUT_S` (120),
-`UPLOAD_TTL_HOURS` (24), `VIEWER_MAX_MB` (150), `PYTHON_BIN`. `raster/Dockerfile` builds the floor-plan service alone (for the colleagues).
+`UPLOAD_TTL_HOURS` (24), `VIEWER_MAX_MB` (150), `RASTER_TIMEOUT_S` (600: reading a big sheet), `PYTHON_BIN`. `raster/Dockerfile` builds the floor-plan service alone (for the colleagues).
 
 ### Railway
 
