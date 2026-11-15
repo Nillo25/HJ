@@ -63,18 +63,19 @@ Types:
 Also list every room name label you can read (room_labels: text as printed, centre of the text)."""
 
 
-def _tiles(H: int, W: int, m: int):
-    for y0 in range(0, H, CORE):
-        for x0 in range(0, W, CORE):
-            cx1, cy1 = min(W, x0 + CORE), min(H, y0 + CORE)
+def _tiles(H: int, W: int, m: int, core: int = CORE):
+    for y0 in range(0, H, core):
+        for x0 in range(0, W, core):
+            cx1, cy1 = min(W, x0 + core), min(H, y0 + core)
             yield (x0, y0, cx1, cy1), (max(0, x0 - m), max(0, y0 - m), min(W, cx1 + m), min(H, cy1 + m))
 
 
-def read_inventory_tiled(full: np.ndarray, ppm_full: float, region=None) -> tuple[dict, float]:
-    """full — лист в полном разрешении (после поворота/обрезки), ppm_full — его px/м, region — рамка чертежа
-    в px full. Возвращает (опись в формате fp/inventory + points/room_labels в px full, цена $)."""
+def _tiled_points(full: np.ndarray, ppm_full: float, region, *, work_ppm: float, core: int, margin_m: float,
+                  model: str, prompt: str, schema: dict) -> tuple[list, list, int, int, float]:
+    """Лист -> фрагменты в масштабе work_ppm -> вызов model по каждому -> точки items / room_labels в px full,
+    только из ядра своего фрагмента. Возвращает (points, labels, фрагментов, без ответа, цена $)."""
     import anthropic
-    s = WORK_PPM / ppm_full
+    s = min(1.0, work_ppm / ppm_full)   # мельче листа не увеличиваем; координаты пересчитываются тем же s
     if region:
         x0, y0, x1, y1 = (int(v) for v in region)
         x0, y0 = max(0, x0), max(0, y0)
@@ -85,29 +86,33 @@ def read_inventory_tiled(full: np.ndarray, ppm_full: float, region=None) -> tupl
     if g.ndim == 3:
         g = cv2.cvtColor(g, cv2.COLOR_BGR2GRAY)
     H, W = g.shape
-    m = int(round(MARGIN_M * WORK_PPM))
+    m = int(round(margin_m * work_ppm))
     jobs = []
-    for core, (tx0, ty0, tx1, ty1) in _tiles(H, W, m):
+    for c, (tx0, ty0, tx1, ty1) in _tiles(H, W, m, core):
         t = g[ty0:ty1, tx0:tx1]
         if (t < 200).mean() < 0.003:   # пустая бумага
             continue
-        jobs.append((core, (tx0, ty0), t))
-    defs = {k: v for k, v in KEYS.items()}
+        jobs.append((c, (tx0, ty0), t))
     client = anthropic.Anthropic()
-    pin, pout = PRICES.get(TILE_MODEL, (4.0, 20.0))
+    pin, pout = PRICES.get(model, (4.0, 20.0))
+    strong = model.startswith(("claude-opus", "claude-sonnet"))
 
     def run(job):
-        core, (tx0, ty0), t = job
+        c, (tx0, ty0), t = job
         data = base64.standard_b64encode(cv2.imencode(".png", t)[1].tobytes()).decode()
         content = [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}},
-                   {"type": "text", "text": PROMPT.format(w=t.shape[1], h=t.shape[0], **defs)}]
-        r = client.messages.create(model=TILE_MODEL, max_tokens=8000, messages=[{"role": "user", "content": content}],
-                                   output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}})
+                   {"type": "text", "text": prompt.format(w=t.shape[1], h=t.shape[0])}]
+        kw = dict(model=model, max_tokens=8000, messages=[{"role": "user", "content": content}],
+                  output_config={"effort": "low", "format": {"type": "json_schema", "schema": schema}})
+        if strong:  # как в fp/inventory.py: отказ классификатора -> fallback
+            r = client.beta.messages.create(**kw, betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+        else:
+            r = client.messages.create(**kw)
         usd = (r.usage.input_tokens * pin + r.usage.output_tokens * pout) / 1e6
         if r.stop_reason == "refusal":
-            return core, (tx0, ty0), None, usd
+            return c, (tx0, ty0), None, usd
         text = next((b.text for b in r.content if b.type == "text"), None)
-        return core, (tx0, ty0), (json.loads(text) if text else None), usd
+        return c, (tx0, ty0), (json.loads(text) if text else None), usd
 
     with ThreadPoolExecutor(WORKERS) as ex:
         res = list(ex.map(run, jobs))
@@ -122,11 +127,65 @@ def read_inventory_tiled(full: np.ndarray, ppm_full: float, region=None) -> tupl
                 gx, gy = tx0 + it["x"], ty0 + it["y"]
                 if cx0 <= gx < cx1 and cy0 <= gy < cy1:     # точка в ядре этого тайла
                     lst.append({**it, "x": round(x0 + gx / s, 1), "y": round(y0 + gy / s, 1)})
+    return points, labels, len(jobs), failed, cost
+
+
+def read_inventory_tiled(full: np.ndarray, ppm_full: float, region=None) -> tuple[dict, float]:
+    """full — лист в полном разрешении (после поворота/обрезки), ppm_full — его px/м, region — рамка чертежа
+    в px full. Возвращает (опись в формате fp/inventory + points/room_labels в px full, цена $)."""
+    prompt = PROMPT.replace("{w}", "{{w}}").replace("{h}", "{{h}}").format(**KEYS)
+    points, labels, n, failed, cost = _tiled_points(full, ppm_full, region, work_ppm=WORK_PPM, core=CORE,
+                                                    margin_m=MARGIN_M, model=TILE_MODEL, prompt=prompt, schema=SCHEMA)
     inv = {k: 0 for k in KEYS if k != "floors"}
     for p in points:
         inv[TYPES[p["type"]]] += 1
     inv["floors"] = 1   # один лист — один план этажа; несколько этажей на листе тайлы не различают
-    inv.update(model=TILE_MODEL, method="tiles", tiles=len(jobs), tiles_failed=failed, work_ppm=WORK_PPM,
+    inv.update(model=TILE_MODEL, method="tiles", tiles=n, tiles_failed=failed, work_ppm=WORK_PPM,
                points=points, room_labels=[lb["text"] for lb in labels], room_label_points=labels,
-               notes=f"по {len(jobs)} фрагментам листа в {WORK_PPM:g} px/м" + (f", без ответа: {failed}" if failed else ""))
+               notes=f"по {n} фрагментам листа в {WORK_PPM:g} px/м" + (f", без ответа: {failed}" if failed else ""))
     return inv, cost
+
+
+# --- второй проход: сильная модель, только комнаты, крупные фрагменты ---
+# Мелочь (двери, окна, сантехника) на большом листе отвечают YOLO + проверка Haiku; Opus здесь читает только подписи
+# комнат — они крупнее значков, поэтому масштаб вдвое мельче (пикселей вчетверо меньше) и фрагменты крупнее.
+# НЕ ЗАМЕРЕНО: эталона комнат по большим листам нет (тест вслепую 15.11.2026). Выключить: FP_INV_ROOMS=0.
+ROOM_MODEL = os.environ.get("FP_INV_ROOM_MODEL", "claude-opus-5-5")
+ROOM_WORK_PPM = float(os.environ.get("FP_INV_ROOM_PPM", "40"))
+ROOM_CORE = 1200          # px в масштабе ROOM_WORK_PPM; фрагмент с запасом 1200 + 2*120 = 1440 <= 1568 (fp/inventory.SIDE)
+ROOM_MARGIN_M = 3.0       # подпись комнаты длиннее значка: запас больше, чтобы подпись на стыке была видна целиком
+ROOM_TYPES = {"sauna": "saunas", "kitchen": "kitchens", "bedroom": "bedrooms", "wc_room": "wc_rooms",
+              "bathroom": "bathrooms", "balcony": "balconies"}
+ROOM_SCHEMA = {"type": "object", "properties": {
+    "items": {"type": "array", "items": {"type": "object", "properties": {
+        "type": {"type": "string", "enum": sorted(ROOM_TYPES)},
+        "x": {"type": "number"}, "y": {"type": "number"}},
+        "required": ["type", "x", "y"], "additionalProperties": False}},
+    "room_labels": SCHEMA["properties"]["room_labels"]},
+    "required": ["items", "room_labels"], "additionalProperties": False}
+ROOM_PROMPT = """This image is one fragment ({{w}}x{{h}} px, x right, y down) of a large architectural drawing sheet. List EVERY ROOM of the types below whose name label you can see in it, one entry per room, with the pixel position of the centre of its name label. Rooms are recognised by their labels (they may be rotated); a label cut by the fragment edge: list it too. Do not list doors, windows or fixtures. Do not guess; an empty list is a valid answer.
+
+Types:
+- sauna: {saunas}
+- kitchen: {kitchens}
+- bedroom: {bedrooms}
+- wc_room: {wc_rooms}
+- bathroom: {bathrooms}
+- balcony: {balconies}
+
+Common abbreviations: MH makuuhuone = bedroom; K/KK/KT keittiö = kitchen; KH kylpyhuone = bathroom; PH/PESUH pesuhuone = washroom; S/SAUNA/LÖYLYH = sauna; WC = toilet room; VH vaatehuone = walk-in closet (not a bedroom); KHH = utility room (not a bathroom unless marked with shower); P/PARV = balcony; SR sovrum = bedroom; KÖK = kitchen; BADRUM/BAD = bathroom.
+
+Also list every room name label you can read (room_labels: text as printed, centre of the text)."""
+
+
+def read_rooms_tiled(full: np.ndarray, ppm_full: float, region=None) -> tuple[dict, float]:
+    """Комнаты большого листа сильной моделью по крупным фрагментам. -> ({ключ комнаты: число, ...}, цена $)."""
+    prompt = ROOM_PROMPT.format(**KEYS)
+    points, labels, n, failed, cost = _tiled_points(full, ppm_full, region, work_ppm=ROOM_WORK_PPM, core=ROOM_CORE,
+                                                    margin_m=ROOM_MARGIN_M, model=ROOM_MODEL, prompt=prompt,
+                                                    schema=ROOM_SCHEMA)
+    rooms = {k: 0 for k in ROOM_TYPES.values()}
+    for p in points:
+        rooms[ROOM_TYPES[p["type"]]] += 1
+    return {"counts": rooms, "model": ROOM_MODEL, "tiles": n, "tiles_failed": failed, "work_ppm": ROOM_WORK_PPM,
+            "points": points, "room_labels": [lb["text"] for lb in labels], "cost_usd": round(cost, 6)}, cost

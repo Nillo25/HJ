@@ -38,7 +38,7 @@ ARC_MIN_PPM = 33.0  # двери по дугам — только если дв�
 WALL_ROOMS_MIN_PPM = 20.0  # помещения по стенам (рамки от ИИ) — только если комната 3 м на листе ≥ 60 px
 
 # менять при правках разбора, влияющих на сцену: повторная загрузка того же файла тогда разберёт его заново
-PIPELINE_VERSION = "2026-11-14.envelope6+sheet-tiles-door-verify+frame+mep-walls+fullres-pipes+label-room-types+long-sheet-no+haiku-doors+tiled-inventory"
+PIPELINE_VERSION = "2026-11-14.envelope6+sheet-tiles-door-verify+frame+mep-walls+fullres-pipes+label-room-types+long-sheet-no+haiku-doors+tiled-inventory+opus-rooms-tiles"
 
 THRESHOLDS = json.loads((Path(__file__).parent / "thresholds.json").read_text())
 
@@ -369,6 +369,20 @@ def analyze_sheet(img: np.ndarray, sc: Scene, full: np.ndarray | None = None, f:
             inv["cost_usd"] = round(c3, 6)
         except Exception as e:  # noqa: BLE001 — без описи ответы идут от YOLO
             inv, c3 = {"error": f"{type(e).__name__}: {e}"}, 0.0
+        # большой лист: комнаты — второй проход сильной модели по крупным фрагментам (fp/inventory_tiles.read_rooms_tiled),
+        # мелочь остаётся за Haiku/YOLO. Не замерено (нет эталона комнат) — числа Haiku сохраняются в rooms_haiku
+        if big and "error" not in inv and os.environ.get("FP_INV_ROOMS", "1") != "0":
+            from .inventory_tiles import read_rooms_tiled
+            try:
+                rr, c4 = read_rooms_tiled(full, est["px_per_m"] / f,
+                                          [v / f for v in bb] if bb and len(bb) == 4 else None)
+                inv["rooms_haiku"] = {k: inv[k] for k in rr["counts"]}
+                inv.update(rr["counts"])
+                inv["rooms_pass"] = {k: v for k, v in rr.items() if k != "counts"}
+                c3 += c4
+                inv["cost_usd"] = round(c3, 6)
+            except Exception as e:  # noqa: BLE001 — комнаты остаются от Haiku
+                inv["rooms_pass"] = {"error": f"{type(e).__name__}: {e}"}
         sc.meta["inventory"] = inv
         sc.meta["sheet_cost_usd"] = round(sc.meta.get("sheet_cost_usd", 0) + c3, 6)
     # второе мнение ИИ по сантехнике — только для уверенности, детекции не меняет (fp/arbiter.py)

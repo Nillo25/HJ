@@ -979,3 +979,29 @@ def test_clear_cache_removes_scenes(tmp_path, monkeypatch):
     assert A.clear_cache() == {"removed": 2, "plans": 1}
     assert not any(scenes.iterdir()) and [p.name for p in tmp_path.iterdir()] == ["scenes"]
     assert A.clear_cache() == {"removed": 0, "plans": 0}
+
+
+def test_rooms_pass_uses_room_model_and_coarse_tiles(monkeypatch):
+    """Второй проход по комнатам: своя модель (Opus через beta), крупнее и меньше фрагментов, считает только комнаты."""
+    import types
+    import numpy as np
+    from fp import inventory_tiles as IT
+    img = np.full((4000, 6000), 255, np.uint8)
+    img[::50, :] = 0
+    calls = []
+    ans = '{"items": [{"type": "kitchen", "x": 10, "y": 10}], "room_labels": []}'
+
+    class Msgs:
+        def create(self, **kw):
+            calls.append(kw)
+            return types.SimpleNamespace(stop_reason="end_turn", usage=types.SimpleNamespace(input_tokens=1, output_tokens=1),
+                                         content=[types.SimpleNamespace(type="text", text=ans)])
+    client = types.SimpleNamespace(messages=Msgs(), beta=types.SimpleNamespace(messages=Msgs()))
+    monkeypatch.setattr("anthropic.Anthropic", lambda: client)
+    rr, _ = IT.read_rooms_tiled(img, 80.0, None)       # 80 px/м -> 40 px/м: 3000x2000, ядро 1200 -> 3x2 фрагмента;
+    # точка (10, 10) в ядре только у первого фрагмента — у остальных она в запасе: кухня одна
+    assert rr["tiles"] == 6 == len(calls) and all(c["model"] == IT.ROOM_MODEL for c in calls)
+    assert all(c.get("betas") for c in calls) == IT.ROOM_MODEL.startswith("claude-opus")
+    assert rr["counts"]["kitchens"] == 1 and set(rr["counts"]) == set(IT.ROOM_TYPES.values())
+    n_small, _ = len(calls), IT.read_inventory_tiled(img, 80.0, None)
+    assert len(calls) - n_small > rr["tiles"]          # Haiku-проход мелче: фрагментов больше

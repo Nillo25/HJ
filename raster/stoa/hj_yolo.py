@@ -59,8 +59,18 @@ def detect(path) -> dict:
         return json.loads(cfile.read_text())
     with _lock:
         infer, query = _import_hj()
-        with tempfile.TemporaryDirectory() as td:
-            sc = infer.run(path, Path(td), model=str(HJ_MODEL), auto_scale=False)
+        # YOLO only: with an inventory in the scene query.count returns the inventory (Claude) count for most types,
+        # and router confidence = agreement of Claude with an INDEPENDENT detector. Also saves a duplicate Opus call.
+        prev = os.environ.get("FP_INVENTORY")
+        os.environ["FP_INVENTORY"] = "0"
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                sc = infer.run(path, Path(td), model=str(HJ_MODEL), auto_scale=False)
+        finally:
+            if prev is None:
+                os.environ.pop("FP_INVENTORY", None)
+            else:
+                os.environ["FP_INVENTORY"] = prev
         info = {k: sc.meta.get(k) for k in ("orig_size", "deskew_deg", "crop", "scale") if sc.meta.get(k) is not None}
         by_id = {e.id: e for e in sc.objects + sc.rooms}
         out = {"counts": {}, "levels": {}, "boxes": {}, "info": info}
