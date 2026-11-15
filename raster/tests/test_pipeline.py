@@ -1005,3 +1005,14 @@ def test_rooms_pass_uses_room_model_and_coarse_tiles(monkeypatch):
     assert rr["counts"]["kitchens"] == 1 and set(rr["counts"]) == set(IT.ROOM_TYPES.values())
     n_small, _ = len(calls), IT.read_inventory_tiled(img, 80.0, None)
     assert len(calls) - n_small > rr["tiles"]          # Haiku-проход мелче: фрагментов больше
+
+
+def test_upload_cost_breakdown():
+    """Цена первичного разбора для интерфейса: итог, шаги с ненулевой ценой, время."""
+    import server.app as A
+    meta = {"sheet_cost_usd": 0.028, "analysis_s": 41.3, "scale": {"vlm_cost_usd": 0.0021},
+            "door_verify": {"cost_usd": 0.0075}, "inventory": {"cost_usd": 0.0179}, "fixture_check": {"cost_usd": 0.0}}
+    r = A._cost(meta)
+    assert r["cost_usd"] == 0.028 and r["analysis_s"] == 41.3
+    assert r["cost_parts"] == {"чтение листа": 0.0021, "проверка дверей": 0.0075, "опись": 0.0179}
+    assert A._cost({})["cost_usd"] == 0.0

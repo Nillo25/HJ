@@ -125,9 +125,20 @@ function scaleText(meta) {
   const src = {manual: 'вручную', area_labels: 'по подписям площадей', scale_bar: 'по шкале'}[s.source] || s.source || '';
   return `масштаб ${meta.px_per_m.toFixed(1)} px/м · ${src}${s.confidence ? ' · ' + s.confidence : ''}`;
 }
+// цена первичного разбора (вызовы ИИ при загрузке) — по шагам; повторная загрузка того же файла бесплатна
+function costText(r) {
+  const usd = v => '$' + Number(v || 0).toFixed(4);
+  const parts = Object.entries(r.cost_parts || {}).map(([k, v]) => `${k} ${usd(v)}`).join(', ');
+  const time = r.analysis_s != null ? ` за ${Math.round(r.analysis_s)} с` : '';
+  const detail = parts ? ` (${parts})` : '';
+  if (r.cached) return `План уже был разобран — взят из кэша, сейчас $0. Первичный разбор стоил ${usd(r.cost_usd)}${detail}.`;
+  return `План разобран${time}. Стоимость разбора: ${usd(r.cost_usd)}${detail}. Вопросы дальше — $0–0.001.`;
+}
+
 function showStatus(scene) {
   $('#status').textContent = `${scene.objects.length} объектов, ${scene.rooms.length} комнат · ` +
-    `источник: ${scene.objects[0]?.source || '—'} · ${scaleText(scene.meta || {})}`;
+    `источник: ${scene.objects[0]?.source || '—'} · ${scaleText(scene.meta || {})}` +
+    (scene.meta?.sheet_cost_usd != null ? ` · разбор $${Number(scene.meta.sheet_cost_usd).toFixed(4)}` : '');
 }
 
 // ---- ручной масштаб: два клика по плану + реальная длина ----
@@ -237,7 +248,11 @@ $('#file').addEventListener('change', async e => {
   const f = e.target.files[0]; if (!f) return;
   $('#status').textContent = 'распознаю…';
   const fd = new FormData(); fd.append('file', f);
-  try { const r = await api('/api/plans', { method:'POST', body:fd }); await loadPlans(r.id); }
+  try {
+    const r = await api('/api/plans', { method:'POST', body:fd });
+    await loadPlans(r.id);
+    say(costText(r), 'bot');
+  }
   catch (err) { $('#status').textContent = 'Ошибка: ' + err.message; }
   e.target.value = '';
 });

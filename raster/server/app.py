@@ -9,6 +9,7 @@ import json
 import os
 import re
 import tempfile
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -118,7 +119,7 @@ async def upload(file: UploadFile = File(...), force: bool = False):
             if m.get("file_sha256") == sha and m.get("pipeline") == pipe:
                 if not (d / "image_hd.png").exists():  # сцена старше копии для показа — достроить, без разбора
                     await run_in_threadpool(_display_from_upload, data, d)
-                return {"id": d.name, "cached": True}
+                return {"id": d.name, "cached": True, **_cost(m)}
     stem = re.sub(r"[^\w\-]+", "_", Path(file.filename or "plan").stem)[:40]
     # id = имя + начало sha256 файла: тот же файл -> тот же id, на любой машине
     plan_id = next((d.name for d in sorted(SCENES.glob(f"*-{sha[:10]}"))), f"{stem}-{sha[:10]}")
@@ -128,14 +129,29 @@ async def upload(file: UploadFile = File(...), force: bool = False):
         try:
             # разбор листа — 15-35 с (YOLO, вызовы ИИ, дуги): в отдельном потоке, иначе обработчик async
             # держит цикл событий и сервер не отвечает ни на какие запросы, пока идёт загрузка
+            t0 = time.perf_counter()
             sc = await run_in_threadpool(infer.run, Path(tmp.name), SCENES / plan_id, model=MODEL)
+            sc.meta["analysis_s"] = round(time.perf_counter() - t0, 1)
         except ValueError as e:
             raise HTTPException(400, str(e))
     sc.meta.update(file_sha256=sha, pipeline=pipe, source_image=file.filename or sc.meta.get("source_image"))
     sc.save(SCENES / plan_id)
     if os.environ.get("FP_STOA") == "1":  # оригинал загрузки для stoa/: её цифры измерены на исходных картинках
         (SCENES / plan_id / f"src_{plan_id}{suffix}").write_bytes(data)
-    return {"id": plan_id, "cached": False}
+    return {"id": plan_id, "cached": False, **_cost(sc.meta)}
+
+
+def _cost(meta: dict) -> dict:
+    """Цена первичного разбора плана (вызовы ИИ при загрузке) по шагам и время разбора — для показа в интерфейсе."""
+    def usd(v):
+        return round(float(v), 4) if isinstance(v, (int, float)) else 0.0
+    parts = {"чтение листа": usd((meta.get("scale") or {}).get("vlm_cost_usd")),
+             "проверка дверей": usd((meta.get("door_verify") or {}).get("cost_usd")),
+             "опись": usd((meta.get("inventory") or {}).get("cost_usd")),
+             "трубы": usd((meta.get("piping") or {}).get("cost_usd")),
+             "сверка сантехники": usd((meta.get("fixture_check") or {}).get("cost_usd"))}
+    return {"cost_usd": usd(meta.get("sheet_cost_usd")), "cost_parts": {k: v for k, v in parts.items() if v},
+            "analysis_s": meta.get("analysis_s")}
 
 
 def _display_from_upload(data: bytes, d: Path) -> None:
