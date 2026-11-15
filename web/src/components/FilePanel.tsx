@@ -22,7 +22,7 @@ const STEPS = ['Upload', 'Parse', 'Ready'];
 
 /**
  * Part one of the screen: the file. Pick the kind, drop one file, watch it being parsed, then ask.
- * A new file can replace the current one at any time; a failed replacement keeps the current file.
+ * Files are added, never replaced: every upload stays in the "Open file" list. A failed upload keeps the current file.
  */
 export function FilePanel({ current, onLoaded, onSelect, refreshKey = 0, notice }: {
   current: Drawing | null;
@@ -36,7 +36,7 @@ export function FilePanel({ current, onLoaded, onSelect, refreshKey = 0, notice 
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<Phase>({ name: 'idle' });
-  const [replacing, setReplacing] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [drag, setDrag] = useState(false);
   const [parsedMs, setParsedMs] = useState<number | null>(null);
   const [converted, setConverted] = useState<{ from: string; pages: number } | null>(null);   // a scanned PDF shown as a PNG
@@ -46,11 +46,13 @@ export function FilePanel({ current, onLoaded, onSelect, refreshKey = 0, notice 
 
   // refresh the list whenever the current file changes (a new upload adds one; an expired one drops out)
   useEffect(() => { listDrawings().then(setFiles).catch(() => setFiles([])); }, [current?.id, refreshKey]);
+  // the open file is always in the list, even before the server lists it
+  const listed = current && !files.some(f => f.id === current.id) ? [current, ...files] : files;
 
   async function choose(id: string) {
     if (!id || id === current?.id) return;
     setPhase({ name: 'idle' });
-    setReplacing(false);
+    setAdding(false);
     setParsedMs(null);
     setConverted(null);
     try { await onSelect(id); }
@@ -111,7 +113,7 @@ export function FilePanel({ current, onLoaded, onSelect, refreshKey = 0, notice 
       setConverted(conv);
       if (d) { try { conv ? localStorage.setItem(`northline.conv.${d.id}`, JSON.stringify(conv)) : localStorage.removeItem(`northline.conv.${d.id}`); } catch { /* storage may be blocked */ } }
       setPhase({ name: 'idle' });
-      setReplacing(false);
+      setAdding(false);
       if (d) onLoaded(d, ms);
     } catch (e) {
       setPhase({ name: 'error', message: e instanceof Error ? e.message : String(e) });
@@ -120,7 +122,7 @@ export function FilePanel({ current, onLoaded, onSelect, refreshKey = 0, notice 
     }
   }
 
-  const showPicker = !current || replacing || busy || phase.name === 'error';
+  const showPicker = !current || adding || busy || phase.name === 'error';
   const step = phase.name === 'uploading' ? 0 : phase.name === 'parsing' ? 1 : current ? 2 : -1;
 
   return (
@@ -128,20 +130,20 @@ export function FilePanel({ current, onLoaded, onSelect, refreshKey = 0, notice 
       <CardHeader>
         <CardTitle>1 · File</CardTitle>
         {current && !busy && (
-          <Button variant="outline" onClick={() => { setReplacing(r => !r); setPhase({ name: 'idle' }); }} className="h-8 px-3 text-xs">
-            {replacing ? 'Cancel' : 'Replace file'}
+          <Button variant="outline" onClick={() => { setAdding(r => !r); setPhase({ name: 'idle' }); }} className="h-8 px-3 text-xs">
+            {adding ? 'Cancel' : '+ Add file'}
           </Button>
         )}
       </CardHeader>
       <CardBody className="space-y-3">
         {notice && <p className="rounded-md bg-emerald-50 p-2 text-sm text-emerald-900" role="status">{notice}</p>}
-        {files.length > 0 && !busy && (
+        {listed.length > 0 && !busy && (
           <div className="space-y-1">
-            <label htmlFor="file-select" className="text-xs font-medium text-slate-600">Open file</label>
+            <label htmlFor="file-select" className="text-xs font-medium text-slate-600">Open file ({listed.length} uploaded)</label>
             <select id="file-select" value={current?.id ?? ''} onChange={e => choose(e.target.value)}
               className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-slate-900">
               {!current && <option value="">Choose an uploaded file…</option>}
-              {files.map(f => <option key={f.id} value={f.id}>{f.name} · {KIND_LABEL[f.kind]}</option>)}
+              {listed.map(f => <option key={f.id} value={f.id}>{f.name} · {KIND_LABEL[f.kind]}</option>)}
             </select>
           </div>
         )}
@@ -224,8 +226,8 @@ export function FilePanel({ current, onLoaded, onSelect, refreshKey = 0, notice 
               onDrop={e => { e.preventDefault(); setDrag(false); send(e.dataTransfer.files[0]); }}
               className={cn('flex cursor-pointer flex-col items-center gap-1 rounded-md border-2 border-dashed px-3 py-6 text-center text-sm transition-colors',
                 drag ? 'border-slate-900 bg-slate-100' : 'border-slate-300 hover:bg-slate-50')}>
-              <span className="font-medium">{current ? 'Drop another file here or click' : 'Drop a file here or click'}</span>
-              <span className="text-xs text-slate-500">DXF, IFC, PDF or PNG, one file</span>
+              <span className="font-medium">{current ? 'Drop a file to add it, or click' : 'Drop a file here or click'}</span>
+              <span className="text-xs text-slate-500">DXF, IFC, PDF or PNG, one file at a time{current ? ': files uploaded before stay in the list above' : ''}</span>
             </div>
             <ul className="space-y-0.5 text-xs text-slate-500">
               {KINDS.map(k => <li key={k.kind}><b className="text-slate-700">{k.ext}</b> {k.hint}</li>)}
