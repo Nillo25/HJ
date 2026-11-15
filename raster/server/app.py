@@ -243,6 +243,50 @@ def chat_ep(plan_id: str, body: ChatIn):
     return out
 
 
+class AddIn(BaseModel):
+    x: float
+    y: float
+    cls: str | None = None   # не задан — что там, решает fp/add_at (модель, затем Haiku)
+
+
+@app.post("/api/plans/{plan_id}/objects")
+def add_object_ep(plan_id: str, body: AddIn):
+    """«+ Add»: клик по пропущенному объекту -> что там (fp/add_at) -> в сцену (fp/corrections.add_object)."""
+    import cv2
+    from fp.add_at import detect_at
+    from fp.corrections import add_object
+    d = _dir(plan_id)
+    sc = Scene.load(d)
+    try:
+        if body.cls and body.cls.startswith("room_"):   # «это кухня»: тип помещения, в котором клик
+            from fp.corrections import mark_room
+            out = mark_room(sc, body.x, body.y, body.cls)
+            found = {"how": "room", "cost_usd": 0.0}
+        else:
+            img = cv2.imread(str(d / (sc.image or "image.png")))
+            if img is None:
+                raise ValueError("нет картинки плана")
+            found = detect_at(img, body.x, body.y, sc.meta.get("px_per_m"), MODEL, want=body.cls or None)
+            out = add_object(sc, found["cls"], body.x, body.y, polygon=found["polygon"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    sc.meta.pop("_dirty", None)
+    sc.save(d)
+    return {**out, "how": found["how"], "cost_usd": found["cost_usd"]}
+
+
+@app.post("/api/plans/{plan_id}/undo")
+def undo_ep(plan_id: str):
+    """Кнопка «Undo»: отменить последнюю правку плана без модели (то же, что «отмени» в чате)."""
+    from fp.corrections import undo_correction
+    sc = Scene.load(_dir(plan_id))
+    a = undo_correction(sc)
+    changed = bool(sc.meta.pop("_dirty", None))
+    if changed:
+        sc.save(_dir(plan_id))
+    return {"undone": a.answer, "note": a.note, "changed": changed}
+
+
 class ScaleIn(BaseModel):
     x1: float
     y1: float

@@ -56,6 +56,8 @@ export type Answer = {
   route?: string;
   /** 'raster': read by the floor-plan service (Claude, reported in dollars only) */
   engine?: string;
+  /** raster: the question corrected the plan (an object removed, a room retyped): draw the plan again */
+  scene_changed?: boolean;
   evidence?: Evidence[];
   usage?: UsageItem[];
   cost_usd?: number;
@@ -156,6 +158,9 @@ export const getRaster = (id: string) => fetch(`/api/drawings/${id}/raster`).the
 export type ScaleBody = { x1: number; y1: number; x2: number; y2: number; length: number; unit: string };
 export const setRasterScale = (id: string, b: ScaleBody) => post<{ px_per_m: number }>(`/api/drawings/${id}/raster/scale`, b);
 export const autoRasterScale = (id: string) => post<{ px_per_m?: number | null; detail?: string }>(`/api/drawings/${id}/raster/scale/auto`);
+export const addRasterObject = (id: string, x: number, y: number, cls: string) =>
+  post<{ id: string; cls: string; count: number | null; how: string; cost_usd: number }>(`/api/drawings/${id}/raster/objects`, { x, y, cls });
+export const undoRaster = (id: string) => post<{ undone: string | null; note: string; changed: boolean }>(`/api/drawings/${id}/raster/undo`);
 export const reanalyzeRaster = (id: string) => post<{ ok: boolean }>(`/api/drawings/${id}/raster/reanalyze`);
 
 export const unitLabel = (u?: string) => (u === 'm2' ? 'm²' : u === 'sf' ? 'SF' : u === 'count' || u === 'text' || !u ? '' : u);

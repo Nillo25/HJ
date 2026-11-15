@@ -9,12 +9,14 @@ const UNITS = ['m', 'cm', 'mm', 'ft', 'in'];
  * the plan and the real distance between them, or read from the sheet by the model (auto). The points are picked on
  * the plan itself (`points` is shared with PlanViewer through the parent).
  */
-export function RasterTools({ drawingId, points, setPoints, onChanged }: {
+export function RasterTools({ drawingId, points, setPoints, onChanged, marking = false }: {
   drawingId: string;
   /** null = not picking; otherwise the points picked so far (0..2) */
   points: [number, number][] | null;
   setPoints: (p: [number, number][] | null) => void;
   onChanged: () => void;
+  /** a missed window or door is being placed on the plan (the points are its click, not the scale's) */
+  marking?: boolean;
 }) {
   const [info, setInfo] = useState<RasterInfo | null>(null);
   const [length, setLength] = useState('');
@@ -61,9 +63,9 @@ export function RasterTools({ drawingId, points, setPoints, onChanged }: {
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" className="h-8 px-3 text-xs" disabled={busy !== null}
+          <Button variant="outline" className="h-8 px-3 text-xs" disabled={busy !== null || marking}
             onClick={() => { setMsg(null); setPoints(points ? null : []); }}>
-            {points ? 'Cancel' : 'Set scale: two points'}
+            {points && !marking ? 'Cancel' : 'Set scale: two points'}
           </Button>
           <Button variant="outline" className="h-8 px-3 text-xs" disabled={busy !== null || points !== null}
             title="The model reads the scale bar or the printed areas on the sheet (one paid call)"
@@ -72,7 +74,7 @@ export function RasterTools({ drawingId, points, setPoints, onChanged }: {
           </Button>
         </div>
 
-        {points && (
+        {points && !marking && (
           <div className="space-y-2 rounded-md border border-slate-200 p-2">
             <p className="text-xs text-slate-600">
               {points.length < 2 ? `Click on the plan: point ${points.length + 1} of 2 (the ends of a known distance, e.g. a door width or a wall).` : `Distance picked: ${dist.toFixed(0)} px.`}

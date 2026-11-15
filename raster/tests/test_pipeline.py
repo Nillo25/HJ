@@ -1016,3 +1016,42 @@ def test_upload_cost_breakdown():
     assert r["cost_usd"] == 0.028 and r["analysis_s"] == 41.3
     assert r["cost_parts"] == {"чтение листа": 0.0021, "проверка дверей": 0.0075, "опись": 0.0179}
     assert A._cost({})["cost_usd"] == 0.0
+
+
+def test_add_object_by_click_counts_and_undoes():
+    """Клик по плану добавляет пропущенное окно размером с медиану окон плана; «отмени» его убирает."""
+    from fp.corrections import add_object, undo_correction
+    from fp.scene import Element, Scene
+    sc = Scene(image="x.png", width=400, height=300)
+    sc.objects = [Element(id="win1", cls="window", polygon=[[10, 10], [30, 10], [30, 14], [10, 14]], conf=0.8),
+                  Element(id="win2", cls="window", polygon=[[50, 10], [70, 10], [70, 14], [50, 14]], conf=0.6)]
+    out = add_object(sc, "window", 200, 100)
+    assert out == {"id": "win3", "cls": "window", "count": 3}
+    added = next(o for o in sc.objects if o.id == "win3")
+    assert added.source == "user" and added.conf == 1.0
+    assert added.polygon[0] == [190.0, 97.0] and added.polygon[2] == [210.0, 103.0]   # height: at least 6 px
+    undo_correction(sc)
+    assert [o.id for o in sc.objects] == ["win1", "win2"]
+    import pytest
+    with pytest.raises(ValueError):
+        add_object(sc, "wall", 1, 1)
+    with pytest.raises(ValueError):
+        add_object(sc, "door", 999, 1)
+
+
+def test_mark_room_by_click_retypes_and_undoes():
+    """Клик внутри помещения + «кухня» -> тип помещения; «отмени» возвращает прежний; уже кухня — ошибка."""
+    from fp.corrections import mark_room, undo_correction
+    from fp.scene import Element, Scene
+    sc = Scene(image="x.png", width=400, height=300)
+    sc.rooms = [Element(id="other_1", cls="room_other", polygon=[[0, 0], [200, 0], [200, 200], [0, 200]], conf=0.6)]
+    out = mark_room(sc, 50, 50, "kitchen")
+    assert out["id"] == "other_1" and out["cls"] == "room_kitchen"
+    assert sc.rooms[0].cls == "room_kitchen"
+    import pytest
+    with pytest.raises(ValueError):
+        mark_room(sc, 50, 50, "room_kitchen")
+    with pytest.raises(ValueError):
+        mark_room(sc, 350, 250, "bedroom")
+    undo_correction(sc)
+    assert sc.rooms[0].cls == "room_other"

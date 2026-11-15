@@ -18,7 +18,7 @@ import { ask } from './ask.js';
 import { Semaphore, dailyLimit, limit, rateLimit } from './limits.js';
 import { PYTHON } from './py.js';
 import {
-  RasterError, analyze, rasterAutoScale, rasterClearCache, rasterEnabled, rasterImage, rasterInfo, rasterPlan, rasterReanalyze, rasterSetScale,
+  RasterError, analyze, rasterAddObject, rasterUndo, rasterAutoScale, rasterClearCache, rasterEnabled, rasterImage, rasterInfo, rasterPlan, rasterReanalyze, rasterSetScale,
 } from './raster.js';
 import { BudgetError, countQuestion, usageSnapshot } from './usage.js';
 
@@ -152,6 +152,24 @@ app.post('/api/drawings/:id/raster/scale', async (c) => {
   try {
     return c.json(await rasterSetScale(s, { x1: nums[0], y1: nums[1], x2: nums[2], y2: nums[3], length: nums[4], unit: b.unit }));
   } catch (e) { return rasterFail(c, e); }
+});
+
+app.post('/api/drawings/:id/raster/objects', async (c) => {
+  const s = rasterSession(c.req.param('id'));
+  if (!s) return c.json({ error: 'not a raster plan' }, 404);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => null);
+  const x = Number(b?.x), y = Number(b?.y);
+  const ADD = ['window', 'door', 'toilet', 'sink', 'bathtub', 'shower', 'sauna_bench',
+    'room_kitchen', 'room_bedroom', 'room_bath', 'room_living', 'room_entry', 'room_storage', 'room_outdoor', 'room_other'];
+  if (!b || !Number.isFinite(x) || !Number.isFinite(y)) return c.json({ error: 'x and y are required' }, 400);
+  if (b.cls != null && !ADD.includes(String(b.cls))) return c.json({ error: `cls is one of ${ADD.join(', ')}` }, 400);
+  try { return c.json(await rasterAddObject(s, x, y, b.cls ? String(b.cls) : undefined)); } catch (e) { return rasterFail(c, e); }
+});
+
+app.post('/api/drawings/:id/raster/undo', async (c) => {
+  const s = rasterSession(c.req.param('id'));
+  if (!s) return c.json({ error: 'not a raster plan' }, 404);
+  try { return c.json(await rasterUndo(s)); } catch (e) { return rasterFail(c, e); }
 });
 
 app.post('/api/drawings/:id/raster/scale/auto', async (c) => {

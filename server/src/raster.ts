@@ -86,7 +86,7 @@ export async function analyze(s: Session): Promise<string> {
 
 /** The scene was lost on the service side (restart): read the sheet again from our copy of the image. */
 async function reanalyzeFromFile(s: Session): Promise<string> {
-  delete s.meta.raster; s.meta.rasterCost = 0; scenes.delete(s.uid);
+  delete s.meta.raster; s.meta.rasterCost = 0; scenes.delete(s.uid); lastMarks.delete(s.uid);
   return analyze(s);
 }
 
@@ -203,7 +203,7 @@ function evidenceOf(scene: RScene, found: string[]) {
 /* ------------------------------------------------------------------ answers */
 
 type RChat = {
-  reply: string; action?: { type?: string; ids?: string[] }; confidence?: 'high' | 'medium' | 'low' | null;
+  reply: string; scene_changed?: boolean; action?: { type?: string; ids?: string[] }; confidence?: 'high' | 'medium' | 'low' | null;
   calls?: { tool: string; args?: Record<string, unknown>; result?: { answer?: unknown; unit?: string | null; ids?: string[]; note?: string | null; evidence?: { id?: string }[] } }[];
   parsed_by?: string; answered_by?: string | null; cost_usd?: number; latency_ms?: number;
 };
@@ -244,6 +244,43 @@ export function toAnswer(chat: RChat, scene: RScene, usage: Usage[] = []) {
   };
 }
 
+/**
+ * The last numbered answer per upload: the screen numbers marks 1..n in evidence order, and people correct by that
+ * number ("there is no window 18"). The service only knows its own ids (win18), so the next question carries this
+ * table as history; its chat prompt already takes ids for remove_objects from the previous result.
+ */
+const lastMarks = new Map<string, { question: string; reply: string; refs: string[] }>();
+const MAX_MARKS = 300;
+
+/** History for the service: the previous question and an answer that spells out number -> element id. */
+export function marksHistory(last: { question: string; reply: string; refs: string[] } | undefined) {
+  if (!last?.refs.length) return [];
+  const table = last.refs.slice(0, MAX_MARKS).map((r, i) => `${i + 1}=${r}`).join(', ');
+  return [
+    { role: 'user', content: last.question },
+    { role: 'assistant', content: `${last.reply}\n[What the user sees NOW: these marks, numbered in the table and on the plan (renumbered after every correction, so a number may now be a different object than before). When the user names a number, use this mapping. number=element id: ${table}]` },
+  ];
+}
+
+/**
+ * "No window 18" / "номер 18" / "#18": the number the person sees on the screen, turned into the service's element id
+ * right in the message, so the model does not have to match 18 to win19 (it confuses that with its own win18).
+ * Only a number after a marker word or an object word; "12 windows" (a count) is left alone.
+ */
+const NUMBER_REF = new RegExp(
+  String.raw`(?:№|#|(?<!\p{L})(?:номер\p{L}*|number|nr\.?|no\.)|(?<!\p{L})(?:windows?|doors?|toilets?|sinks?|rooms?|objects?|marks?|окн\p{L}*|двер\p{L}*|унитаз\p{L}*|раковин\p{L}*|комнат\p{L}*|объект\p{L}*|отметк\p{L}*)(?:\s+(?:номер\p{L}*|number|№|#))?)\s*(\d{1,4})(?!\d)`,
+  'giu');
+export function withScreenNumbers(question: string, refs: string[] | undefined): string {
+  if (!refs?.length) return question;
+  const hits = new Map<number, string>();
+  for (const m of question.matchAll(NUMBER_REF)) {
+    const n = Number(m[1]);
+    if (n >= 1 && n <= refs.length) hits.set(n, refs[n - 1]);
+  }
+  if (!hits.size) return question;
+  return `${question}\n[Numbers on the user's screen: ${[...hits].map(([n, r]) => `${n} = element ${r}`).join(', ')}]`;
+}
+
 export async function rasterAsk(s: Session, question: string, t0: number) {
   if (!rasterEnabled()) {
     return { status: 'refused', reason: 'raster plans are not read in this deployment (no floor-plan service configured)',
@@ -252,17 +289,25 @@ export async function rasterAsk(s: Session, question: string, t0: number) {
   let rid = await analyze(s);
   let r: Response;
   try {
-    r = await call(`/api/plans/${rid}/chat`, jsonPost({ message: question, history: [] }));
+    const last = lastMarks.get(s.uid);
+    r = await call(`/api/plans/${rid}/chat`, jsonPost({ message: withScreenNumbers(question, last?.refs), history: marksHistory(last) }));
   } catch (e) {
     if (!(e instanceof RasterError) || e.status !== 404) throw e;
     rid = await reanalyzeFromFile(s);                    // the service forgot the scene: read the sheet again, once
-    r = await call(`/api/plans/${rid}/chat`, jsonPost({ message: question, history: [] }));
+    r = await call(`/api/plans/${rid}/chat`, jsonPost({ message: question, history: [] }));   // a new scene: old numbers mean nothing
   }
   const chat = await r.json() as RChat;
   const used = (chat.cost_usd ?? 0) > 0 ? [recordUsage(MODEL_NAME, 0, 0, chat.cost_usd!)] : [];
+  if (chat.scene_changed) scenes.delete(s.uid);          // a correction changed the scene: never answer or draw from the cached copy
   const scene = await getScene(s, rid);
-  const out = toAnswer(chat, scene, used);
-  return { ...out, latency_ms: Date.now() - t0 };
+  const out: any = toAnswer(chat, scene, used);
+  // a correction ("there is no window 18") marks nothing itself: show the previous marks again on the changed scene,
+  // without what was removed and numbered afresh, so the screen and the next question share the same numbers
+  const last = lastMarks.get(s.uid);
+  if (chat.scene_changed && !out.evidence?.length && last) out.evidence = evidenceOf(scene, last.refs);
+  const refs = (out.evidence ?? []).map((e: any) => e.ref).filter((x: unknown): x is string => typeof x === 'string');
+  if (refs.length) lastMarks.set(s.uid, { question: chat.scene_changed && last ? last.question : question, reply: chat.reply, refs });
+  return { ...out, scene_changed: Boolean(chat.scene_changed), latency_ms: Date.now() - t0 };
 }
 
 /* ------------------------------------------------------------------ viewer data and scale */
@@ -297,6 +342,26 @@ export async function rasterSetScale(s: Session, b: ScaleIn) {
   return r;
 }
 
+/** A missed window or door, clicked on the plan (plan coordinates = the service's image pixels). "Undo" in the chat removes it. */
+export async function rasterAddObject(s: Session, x: number, y: number, cls?: string) {
+  assertBudget();
+  const rid = await analyze(s);
+  // what is there: our detector on a crop around the click, then Haiku if it sees nothing (a cent at most)
+  const r = await (await call(`/api/plans/${rid}/objects`, jsonPost({ x, y, cls: cls ?? null }))).json() as
+    { id: string; cls: string; count: number | null; how: string; cost_usd: number };
+  if (r.cost_usd > 0) recordUsage(MODEL_NAME, 0, 0, r.cost_usd);
+  scenes.delete(s.uid);
+  return r;
+}
+
+/** The Undo button: the last correction of the plan is taken back, no model involved. */
+export async function rasterUndo(s: Session) {
+  const rid = await analyze(s);
+  const r = await (await call(`/api/plans/${rid}/undo`, { method: 'POST' })).json() as { undone: string | null; note: string; changed: boolean };
+  if (r.changed) scenes.delete(s.uid);
+  return r;
+}
+
 export async function rasterAutoScale(s: Session) {
   assertBudget();
   const rid = await analyze(s);
@@ -312,7 +377,7 @@ export async function rasterReanalyze(s: Session) {
   await rasterSlots.acquire();
   try { await call(`/api/plans/${rid}/reanalyze`, { method: 'POST', timeoutMs: ANALYZE_TIMEOUT_MS }); }
   finally { rasterSlots.release(); }
-  scenes.delete(s.uid);
+  scenes.delete(s.uid); lastMarks.delete(s.uid);   // a new reading: old numbers mean nothing
   await settleCost(s);
   return { ok: true };
 }

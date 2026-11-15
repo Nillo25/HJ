@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getPlan, type Evidence, type Plan } from '../lib/api';
 import { Card, CardBody, CardHeader, CardTitle, cn } from './ui';
+import type { ReactNode } from 'react';
 
 const STYLE: Record<string, { fill: string; stroke: string; width: number; label: string }> = {
   rooms: { fill: '#eef2f7', stroke: '#cbd5e1', width: 1, label: 'Rooms' },
@@ -40,8 +41,12 @@ const nameOf = (e: Evidence) => {
  * Draws the plan and proves the answer on it: what was found is marked in red and numbered like the
  * evidence table, everything else is dimmed, and per storey counts say where the objects are.
  */
-export function PlanViewer({ drawingId, evidence, pick, marks = [] }: {
+export function PlanViewer({ drawingId, evidence, pick, marks = [], tools, note }: {
   drawingId: string; evidence: Evidence[];
+  /** controls shown next to the title (adding a missed window or door) */
+  tools?: ReactNode;
+  /** one line under the header: what the tools did, or what to click */
+  note?: ReactNode;
   /** a click on the plan is a point (plan coordinates) instead of a pan: used to set the scale */
   pick?: (x: number, y: number) => void;
   marks?: [number, number][];
@@ -158,7 +163,10 @@ export function PlanViewer({ drawingId, evidence, pick, marks = [] }: {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{anyFound ? `Found: ${kinds}` : 'Plan'}</CardTitle>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <CardTitle>{anyFound ? `Found: ${kinds}` : 'Plan'}</CardTitle>
+          {tools}
+        </div>
         <span className="flex items-center gap-2 text-xs text-slate-500">
           {anyFound && `${found.length} shown here`}
           {focus && (
@@ -169,6 +177,7 @@ export function PlanViewer({ drawingId, evidence, pick, marks = [] }: {
         </span>
       </CardHeader>
       <CardBody className="space-y-3">
+        {note}
         {plan.floors && plan.floors.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <span className="text-slate-500">Storey</span>

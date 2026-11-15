@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { ask, clearCache, getDrawing, type Answer, type Drawing, type Part } from './lib/api';
+import { addRasterObject, ask, undoRaster, clearCache, getDrawing, type Answer, type Drawing, type Part } from './lib/api';
 import { AnswerCard } from './components/AnswerCard';
 import { EvidenceTable } from './components/EvidenceTable';
 import { FilePanel } from './components/FilePanel';
@@ -11,6 +11,19 @@ import { UsageBar } from './components/UsageBar';
 import { Button, Card, CardBody, CardHeader, CardTitle, Input } from './components/ui';
 
 const KEY = 'northline.current';
+
+/** what the person typed after «+ Add» and a click -> the object's class (any language they are likely to use) */
+const MARK_WORDS: [RegExp, string][] = [
+  [/kitchen|кухн|keittiö|kök|küche|\bkk\b/i, 'room_kitchen'], [/bedroom|спальн|makuuhuone|sovrum|schlafzimmer|\bmh\b/i, 'room_bedroom'],
+  [/bathroom|washroom|ванная|санузел|kylpyhuone|badrum|badezimmer|\bkh\b/i, 'room_bath'],
+  [/balcon|balkon|балкон|parveke|terrace|террас/i, 'room_outdoor'], [/living|гостин|olohuone|vardagsrum|wohnzimmer/i, 'room_living'],
+  [/hall|entry|прихож|коридор|eteinen|hall/i, 'room_entry'], [/storage|closet|кладов|гардероб|varasto|förråd/i, 'room_storage'],
+  [/sauna|сауна|bastu|lauteet|полок/i, 'sauna_bench'],
+  [/window|окн|ikkun|fönster|fenster/i, 'window'], [/door|двер|ovi|dörr|tür/i, 'door'],
+  [/toilet|\bwc\b|унитаз|туалет|wc-istuin|toalett/i, 'toilet'], [/sink|basin|раковин|умывальн|мойк|pesuallas|lavoar/i, 'sink'],
+  [/shower|душ|suihku|dusch/i, 'shower'], [/bath|ванн|amme|badkar/i, 'bathtub'],
+];
+const markClassOf = (text: string) => MARK_WORDS.find(([re]) => re.test(text))?.[1] ?? null;
 
 const remember = (id: string | null) => {
   try { id ? localStorage.setItem(KEY, id) : localStorage.removeItem(KEY); } catch { /* storage may be blocked */ }
@@ -26,6 +39,16 @@ export default function App() {
   const [ifcTab, setIfcTab] = useState<'3d' | 'plan'>('3d');
   const [pick, setPick] = useState<Part | null>(null);       // a part of an area breakdown shown on the plan
   const [scalePts, setScalePts] = useState<[number, number][] | null>(null);   // raster plan: points picked on the plan for the scale
+  const [marking, setMarking] = useState(false);   // raster «+ Add»: one click on a missed object, the detector or Haiku says what it is
+  const [markBusy, setMarkBusy] = useState(false);
+  const [markAt, setMarkAt] = useState<[number, number] | null>(null);   // clicked, waiting for what it is
+  // results of «+ Add» and Undo are shown on the answer card, like any other answer
+  const say = (what: string, ok: boolean, text: string, cost = 0) => {
+    setAsked(what); setPick(null);
+    setAnswer(ok ? { status: 'answered', answer: text, unit: 'text', route: cost > 0 ? 'llm' : 'template', cost_usd: cost, evidence: [] }
+                 : { status: 'refused', reason: text, missing: 'question', evidence: [] });
+  };
+  const [planVersion, setPlanVersion] = useState(0);     // bump: the plan changed on the server (a correction), draw it again
   const [filesKey, setFilesKey] = useState(0);           // bump: FilePanel reloads the list of files
   const [notice, setNotice] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
@@ -73,15 +96,74 @@ export default function App() {
     }
   }
 
+  // «+ Add»: the click is where; then the person says what it is (a button, or words in the question box)
+  useEffect(() => {
+    if (!marking || scalePts?.length !== 1) return;
+    setMarkAt(scalePts[0]); setMarking(false); setScalePts(null);
+    setTimeout(() => document.getElementById('q')?.focus(), 0);
+  }, [scalePts, marking]);
+
+  function addMark(cls: string, said: string) {
+    if (!current || !markAt) return;
+    const [x, y] = markAt;
+    setMarkAt(null); setMarkBusy(true);
+    addRasterObject(current.id, x, y, cls)
+      .then(r => {
+        const name = r.cls.replace('room_', '').replace('_', ' ');
+        if (r.how === 'room') say(said, true, `This room is now a ${name}${r.count != null ? `. Now ${r.count} on the plan` : ''}. Wrong? Press Undo.`);
+        else {
+          const by = r.how === 'model' ? 'outline from our detector' : r.how === 'haiku' ? `outline by Haiku, $${r.cost_usd.toFixed(4)}` : 'approximate box';
+          say(said, true, `Added: ${name} (${by})${r.count != null ? `. Now ${r.count} on the plan` : ''}. Wrong? Press Undo.`, r.cost_usd);
+        }
+        setPlanVersion(v => v + 1); setUsageKey(k => k + 1);
+      })
+      .catch(e => say(said, false, e instanceof Error ? e.message : String(e)))
+      .finally(() => setMarkBusy(false));
+  }
+
+  useEffect(() => { setMarking(false); setMarkAt(null); }, [current?.id]);
+
+  const markTools = current?.kind === 'png' && current.raster ? (
+    <span className="flex items-center gap-1">
+      <Button variant={marking ? 'default' : 'outline'} className="h-6 px-2 text-xs" disabled={markBusy || (scalePts !== null && !marking)}
+        title="Missed an object? Click this, then click on it: our detector looks again, then Haiku"
+        onClick={() => { if (marking || markAt) { setMarking(false); setMarkAt(null); setScalePts(null); } else { setMarking(true); setScalePts([]); } }}>
+        {markBusy ? 'Adding…' : marking || markAt ? 'Cancel' : '+ Add'}
+      </Button>
+      <Button variant="outline" className="h-6 px-2 text-xs" disabled={scalePts !== null}
+        title="Take back the last correction of this plan (an added or removed mark)"
+        onClick={() => {
+          undoRaster(current.id)
+            .then(r => { say('Undo', true, r.changed ? 'The last correction is undone.' : 'Nothing to undo on this plan.'); if (r.changed) setPlanVersion(v => v + 1); })
+            .catch(e => say('Undo', false, e instanceof Error ? e.message : String(e)));
+        }}>Undo</Button>
+    </span>
+  ) : undefined;
+  const markNote = marking
+    ? <p className="text-sm font-medium text-slate-800">Click on the plan where the missed object is.</p>
+    : markAt
+      ? <p className="text-sm font-medium text-slate-800">Marked. Now say in the question box what it is.</p>
+    : markBusy ? <p className="text-sm text-slate-600">Adding…</p>
+    : null;
+
   async function run(q: string) {
     if (!current || !q.trim() || loading) return;
+    if (markAt) {   // after «+ Add» and a click, the question box says what the object is
+      const cls = markClassOf(q);
+      setQuestion('');
+      if (cls) addMark(cls, q.trim());
+      else say(q.trim(), false, `“${q.trim()}” is not something I can add. Say a window, door, toilet, sink, bathtub, shower or sauna; or, clicked inside a room, kitchen, bedroom, bathroom, hall, storage, balcony or living room (the mark is kept). Or press Cancel.`);
+      return;
+    }
     setAsked(q);
-    setQuestion(q);
+    setQuestion('');          // the box is free for the next question; the asked one stays on the answer card
     setAnswer(null);
     setPick(null);
     setLoading(true);
     try {
-      setAnswer(await ask(current.id, q));
+      const res = await ask(current.id, q);
+      if (res.scene_changed) setPlanVersion(v => v + 1);
+      setAnswer(res);
     } catch (e) {
       setAnswer({ status: 'refused', reason: e instanceof Error ? e.message : String(e), missing: 'server' });
     } finally {
@@ -122,7 +204,7 @@ export default function App() {
               <form onSubmit={onSubmit} className="flex gap-2">
                 <label htmlFor="q" className="sr-only">Question</label>
                 <Input id="q" value={question} onChange={e => setQuestion(e.target.value)} disabled={!current}
-                  placeholder={current ? 'Ask in any language' : 'Upload a file first'} autoComplete="off" />
+                  placeholder={!current ? 'Upload a file first' : markAt ? 'What did you mark? e.g. window, toilet' : 'Ask in any language'} autoComplete="off" />
                 <Button type="submit" disabled={!current || loading || !question.trim()}>Ask</Button>
               </form>
             </CardBody>
@@ -149,10 +231,10 @@ export default function App() {
           {/* both stay mounted: switching must not reload a 70 MB model */}
           {current?.kind === 'ifc' && <div className={ifcTab === '3d' ? '' : 'hidden'}><IfcViewer key={current.id} drawingId={current.id} evidence={evidence} /></div>}
           {current?.kind === 'pdf' && <PdfViewer key={current.id} drawingId={current.id} evidence={evidence} />}
-          {hasPlan && <div className={current.kind === 'ifc' && ifcTab !== 'plan' ? 'hidden' : ''}><PlanViewer key={current.id} drawingId={current.id} evidence={evidence}
+          {hasPlan && <div className={current.kind === 'ifc' && ifcTab !== 'plan' ? 'hidden' : ''}><PlanViewer key={`${current.id}-${planVersion}`} drawingId={current.id} evidence={evidence} tools={markTools} note={markNote}
             pick={scalePts && scalePts.length < 2 ? (x, y) => setScalePts(p => (p && p.length < 2 ? [...p, [x, y]] : p)) : undefined} marks={scalePts ?? []} /></div>}
           {current?.kind === 'png' && current.raster && (
-            <RasterTools key={`t${current.id}`} drawingId={current.id} points={scalePts} setPoints={setScalePts} onChanged={() => setUsageKey(k => k + 1)} />
+            <RasterTools key={`t${current.id}`} marking={marking} drawingId={current.id} points={scalePts} setPoints={setScalePts} onChanged={() => setUsageKey(k => k + 1)} />
           )}
           {current?.kind === 'png' && !current.raster && (
             <Card>

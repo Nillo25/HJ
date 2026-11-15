@@ -81,6 +81,89 @@ def remove_objects(scene: Scene, ids: list[str]) -> "Answer":
     return _answer(sorted(gone), note, action=None)
 
 
+ADDABLE = {"window", "door", "toilet", "sink", "bathtub", "shower", "sauna_bench"}
+QUERY_CLASS = {"bathtub": "shower_bathtub", "shower": "shower_bathtub", "sauna_bench": "sauna"}   # класс в вопросе «сколько …»
+
+
+def _count_now(scene: Scene, qcls: str):
+    from .query import count
+    try:
+        return count(scene, qcls).answer
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def add_object(scene: Scene, cls: str, x: float, y: float, polygon: list | None = None, source: str = "user") -> dict:
+    """Пропущенный объект («+ Add»): контур от fp/add_at (модель или ИИ по вырезке у клика); без контура — рамка
+    размером с медиану таких же объектов. Если ответ «сколько» этот объект не учитывает (число даёт опись Opus),
+    число поднимается на 1 правкой count_overrides. В журнале правок, отменяется undo_correction."""
+    if cls not in ADDABLE:
+        raise ValueError(f"добавить можно только: {', '.join(sorted(ADDABLE))}")
+    if not (0 <= x <= scene.width and 0 <= y <= scene.height):
+        raise ValueError("точка вне плана")
+    same = [o for o in scene.objects if o.cls == cls]
+    if polygon:
+        poly = [[round(float(px), 1), round(float(py), 1)] for px, py in polygon]
+    else:
+        if same:
+            ws = sorted(max(p[0] for p in o.polygon) - min(p[0] for p in o.polygon) for o in same)
+            hs = sorted(max(p[1] for p in o.polygon) - min(p[1] for p in o.polygon) for o in same)
+            w, h = ws[len(ws) // 2], hs[len(hs) // 2]
+        else:
+            ppm = scene.meta.get("px_per_m") or 0
+            w = h = ppm * 1.0 if ppm else scene.width * 0.015
+        w, h = max(w, 6.0), max(h, 6.0)
+        poly = [[round(x - w / 2, 1), round(y - h / 2, 1)], [round(x + w / 2, 1), round(y - h / 2, 1)],
+                [round(x + w / 2, 1), round(y + h / 2, 1)], [round(x - w / 2, 1), round(y + h / 2, 1)]]
+    prefix = (same[0].id.rstrip("0123456789") if same else cls[:3]) or cls
+    used = {o.id for o in scene.objects}
+    n = 1 + max((int(i[len(prefix):]) for i in used if i.startswith(prefix) and i[len(prefix):].isdigit()), default=0)
+    oid = f"{prefix}{n}"
+    qcls = QUERY_CLASS.get(cls, cls)
+    before = _count_now(scene, qcls)
+    scene.objects.append(Element(id=oid, cls=cls, polygon=poly, conf=1.0, source=source))
+    scene.assign_rooms()
+    ov = scene.meta.setdefault("count_overrides", {})
+    prev = ov.get(qcls)
+    after = _count_now(scene, qcls)
+    bumped = isinstance(before, int) and after == before
+    if bumped:
+        ov[qcls] = before + 1
+        after = before + 1
+    _log(scene, {"tool": "add_object", "id": oid, "cls": cls, "qcls": qcls, "bumped": bumped, "prev_override": prev})
+    return {"id": oid, "cls": cls, "count": after}
+
+
+def mark_room(scene: Scene, x: float, y: float, kind: str) -> dict:
+    """«+ Add» по комнате: клик внутри помещения + «это кухня» -> тип помещения (самое маленькое, что содержит точку).
+    Если ответ «сколько кухонь» правку не учитывает (число даёт опись Opus), число поднимается на 1. Отменяется undo."""
+    from shapely.geometry import Point
+    t = kind.removeprefix("room_")
+    if t not in ROOM_TYPES:
+        raise ValueError(f"тип помещения {kind!r} не из списка: {', '.join(ROOM_TYPES)}")
+    pt = Point(x, y)
+    inside = [r for r in scene.rooms if r.shape().contains(pt)]
+    if not inside:
+        raise ValueError("здесь нет найденного помещения: кликните внутри комнаты")
+    r = min(inside, key=lambda e: e.shape().area)
+    now = f"room_{t}"
+    if r.cls == now:
+        raise ValueError(f"это помещение уже {LABELS_RU.get(now, t)}")
+    before = _count_now(scene, now)
+    was = r.cls
+    r.cls, r.conf, r.source = now, 1.0, "user"
+    ov = scene.meta.setdefault("count_overrides", {})
+    prev = ov.get(now)
+    after = _count_now(scene, now)
+    bumped = isinstance(before, int) and after == before
+    if bumped:
+        ov[now] = before + 1
+        after = before + 1
+    _log(scene, {"tool": "mark_room", "room": r.id, "was": was, "now": now, "qcls": now, "bumped": bumped,
+                 "prev_override": prev})
+    return {"id": r.id, "cls": now, "count": after}
+
+
 def set_count(scene: Scene, cls: str, value: int) -> "Answer":
     """Число объектов класса на всём плане со слов пользователя — дальше подсчёт отвечает им (уверенность high)."""
     from .query import _count_plan
@@ -112,6 +195,24 @@ def undo_correction(scene: Scene) -> "Answer":
         scene.objects += [Element(**o) for o in e["objects"]]
         scene.rooms += [Element(**r) for r in e["rooms"]]
         scene.assign_rooms()
+    elif e["tool"] == "mark_room":
+        r = next((r for r in scene.rooms if r.id == e["room"]), None)
+        if r:
+            r.cls = e["was"]
+        if e.get("bumped"):
+            ov = scene.meta.setdefault("count_overrides", {})
+            if e.get("prev_override") is None:
+                ov.pop(e["qcls"], None)
+            else:
+                ov[e["qcls"]] = e["prev_override"]
+    elif e["tool"] == "add_object":
+        scene.objects = [o for o in scene.objects if o.id != e["id"]]
+        if e.get("bumped"):
+            ov = scene.meta.setdefault("count_overrides", {})
+            if e.get("prev_override") is None:
+                ov.pop(e["qcls"], None)
+            else:
+                ov[e["qcls"]] = e["prev_override"]
     elif e["tool"] == "set_count":
         ov = scene.meta.setdefault("count_overrides", {})
         if e.get("prev_override") is None:

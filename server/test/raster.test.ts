@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isWeak, planFromScene, toAnswer, type RScene } from '../src/raster.js';
+import { isWeak, marksHistory, planFromScene, toAnswer, withScreenNumbers, type RScene } from '../src/raster.js';
 
 // shapes taken from real responses of the floor-plan service
 const scene: RScene = {
@@ -89,4 +89,25 @@ test('the plan draws the scene over the image: layers by kind, ids shared with t
   assert.equal(p.layers.windows.length, 2);
   const ev: any = toAnswer({ reply: 'x', confidence: 'high', calls: [{ tool: 'count', result: { answer: 1, ids: ['t1'] } }] }, scene);
   assert.equal(p.layers.fixtures[0].id, ev.evidence[0].id);
+});
+
+test('the next question carries the numbers on screen: number = element id, so "no window 2" means win2', () => {
+  assert.deepEqual(marksHistory(undefined), []);
+  assert.deepEqual(marksHistory({ question: 'q', reply: 'r', refs: [] }), []);
+  const h = marksHistory({ question: 'how many windows', reply: '2 windows', refs: ['win1', 'win7'] });
+  assert.equal(h.length, 2);
+  assert.deepEqual(h[0], { role: 'user', content: 'how many windows' });
+  assert.equal(h[1].role, 'assistant');
+  assert.match(h[1].content, /1=win1, 2=win7/);
+});
+
+test('a number the person sees becomes the element id in the message; a plain count does not', () => {
+  const refs = Array.from({ length: 24 }, (_, i) => `win${i + 2}`);      // the screen's 18 is win19
+  assert.match(withScreenNumbers('тут нет окна номер 18', refs), /18 = element win19/);
+  assert.match(withScreenNumbers('window 18 is wrong', refs), /18 = element win19/);
+  assert.match(withScreenNumbers('remove #3 and №5', refs), /3 = element win4, 5 = element win6/);
+  assert.equal(withScreenNumbers('на плане 12 окон', refs), 'на плане 12 окон');
+  assert.equal(withScreenNumbers('there are 12 windows', refs), 'there are 12 windows');
+  assert.equal(withScreenNumbers('window 99', refs), 'window 99');            // not on screen: left to the model
+  assert.equal(withScreenNumbers('номер 18', undefined), 'номер 18');
 });
