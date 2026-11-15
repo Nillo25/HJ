@@ -33,6 +33,10 @@ export type Evidence = {
   area?: number | null;
   length?: number | null;
   volume?: number | null;
+  /** detection confidence of this object (0..1): raster plans only; vector data has none */
+  confidence?: number | null;
+  /** raster: a borderline detection (under its class threshold + margin), drawn yellow */
+  weak?: boolean;
 };
 
 type UsageItem = { model: string; input_tokens: number; output_tokens: number; cost_usd: number };

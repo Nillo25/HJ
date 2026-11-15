@@ -18,6 +18,7 @@ const STYLE: Record<string, { fill: string; stroke: string; width: number; label
 };
 const ORDER = ['slabs', 'rooms', 'apartments', 'walls', 'columns', 'beams', 'stairs', 'railings', 'furniture', 'windows', 'doors', 'fixtures'];
 const FOUND = '#e11d48';
+const WEAK = '#f59e0b';          // found, but a borderline detection (the server sets evidence.weak): check it on the plan
 const MAX_BADGES = 99;
 
 type Item = { id: number; label?: string | null; polygon?: number[][]; bbox?: number[] };
@@ -61,6 +62,9 @@ export function PlanViewer({ drawingId, evidence, pick, marks = [] }: {
     return m;
   }, [evidence]);
 
+  // objects the detector found with low confidence: drawn yellow instead of red
+  const weakIds = useMemo(() => new Set(evidence.filter(e => e.id != null && e.weak).map(e => e.id!)), [evidence]);
+
   const byFloor = useMemo(() => {
     const m = new Map<number, number>();
     for (const e of evidence) if (e.floor_id != null) m.set(e.floor_id, (m.get(e.floor_id) ?? 0) + 1);
@@ -94,13 +98,13 @@ export function PlanViewer({ drawingId, evidence, pick, marks = [] }: {
 
   const layers = useMemo(() => ORDER.filter(k => plan?.layers[k]?.length), [plan]);
   const found = useMemo(() => {
-    const out: { key: string; it: Item; n: number }[] = [];
+    const out: { key: string; it: Item; n: number; weak: boolean }[] = [];
     if (plan) for (const k of Object.keys(plan.layers)) for (const it of plan.layers[k] as Item[]) {
       const n = numbers.get(it.id);
-      if (n != null) out.push({ key: k, it, n });
+      if (n != null) out.push({ key: k, it, n, weak: weakIds.has(it.id) });
     }
     return out.sort((a, b) => a.n - b.n);
-  }, [plan, numbers]);
+  }, [plan, numbers, weakIds]);
 
   const focus = useMemo(() => {
     if (!found.length) return null;
@@ -202,7 +206,7 @@ export function PlanViewer({ drawingId, evidence, pick, marks = [] }: {
           ))}
           {/* found objects on top, full strength */}
           <g>
-            {found.map(({ key, it }) => shape(it, key, 'rgba(225,29,72,0.6)', FOUND, Math.max(STYLE[key].width, 1) + 2.5))}
+            {found.map(({ key, it, weak }) => shape(it, key, weak ? 'rgba(245,158,11,0.6)' : 'rgba(225,29,72,0.6)', weak ? WEAK : FOUND, Math.max(STYLE[key].width, 1) + 2.5))}
           </g>
           {found.length <= MAX_BADGES && key_badges(found, r)}
           {marks.length > 0 && (
@@ -225,6 +229,11 @@ export function PlanViewer({ drawingId, evidence, pick, marks = [] }: {
               <span className="inline-block h-2.5 w-2.5 rounded-sm border border-rose-700 bg-rose-500/60" /> found, numbered as in the table
             </span>
           )}
+          {found.some(f => f.weak) && (
+            <span className="inline-flex items-center gap-1.5 px-2 py-1 font-medium text-amber-700">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm border border-amber-600 bg-amber-400/60" /> low confidence: check
+            </span>
+          )}
         </div>
       </CardBody>
     </Card>
@@ -238,15 +247,15 @@ function shape(it: Item, k: string, fill: string, stroke: string, width: number)
   return null;
 }
 
-function key_badges(found: { it: Item; n: number }[], r: number) {
+function key_badges(found: { it: Item; n: number; weak: boolean }[], r: number) {
   return (
     <g fontFamily="system-ui, sans-serif" textAnchor="middle" pointerEvents="none">
-      {found.map(({ it, n }) => {
+      {found.map(({ it, n, weak }) => {
         const c = centre(it);
         if (!c) return null;
         return (
           <g key={`b${it.id}`}>
-            <circle cx={c[0]} cy={c[1]} r={r} fill={FOUND} stroke="#fff" strokeWidth={r * 0.18} />
+            <circle cx={c[0]} cy={c[1]} r={r} fill={weak ? WEAK : FOUND} stroke="#fff" strokeWidth={r * 0.18} />
             <text x={c[0]} y={c[1] + r * 0.36} fontSize={r * (n > 9 ? 0.95 : 1.15)} fontWeight={700} fill="#fff">{n}</text>
           </g>
         );

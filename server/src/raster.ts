@@ -164,6 +164,20 @@ export function planFromScene(scene: RScene, background: string) {
   return { viewBox: [0, 0, scene.width, scene.height] as number[], background, overlay: true, layers };
 }
 
+/**
+ * Weak detection = the floor-plan pipeline's "borderline" rule (raster/fp/query.py): kept with a confidence
+ * under its class threshold + near_margin, both from raster/fp/thresholds.json (tuned on CubiCasa5K val).
+ * The screen draws such objects yellow: check them on the plan. No file = nothing is called weak.
+ */
+const CAL: Record<string, { conf?: number }> & { _calibration?: { near_margin?: number } } = (() => {
+  try { return JSON.parse(readFileSync(path.resolve('../raster/fp/thresholds.json'), 'utf8')); } catch { return {}; }
+})();
+export function isWeak(cls: string, conf: number): boolean {
+  const thr = CAL[cls]?.conf ?? CAL.default?.conf;
+  if (thr == null) return false;
+  return conf < thr + (CAL._calibration?.near_margin ?? 0.15);
+}
+
 function evidenceOf(scene: RScene, found: string[]) {
   const ids = numbering(scene);
   const byId = new Map([...scene.objects, ...scene.rooms].map((o) => [o.id, o]));
@@ -180,7 +194,7 @@ function evidenceOf(scene: RScene, found: string[]) {
       type: isRoom ? 'room' : o.class, subtype: isRoom ? o.class.replace('room_', '') : null,
       label: !isRoom && o.room ? `in ${o.room}` : null,
       bbox: bb ? JSON.stringify(bb) : null, page: null, area: null, length: null, volume: null,
-      confidence: Math.round(o.conf * 100) / 100,
+      confidence: Math.round(o.conf * 100) / 100, weak: isWeak(o.class, o.conf),
     });
   }
   return out;

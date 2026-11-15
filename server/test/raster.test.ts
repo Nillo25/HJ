@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { planFromScene, toAnswer, type RScene } from '../src/raster.js';
+import { isWeak, planFromScene, toAnswer, type RScene } from '../src/raster.js';
 
 // shapes taken from real responses of the floor-plan service
 const scene: RScene = {
@@ -27,6 +27,18 @@ test('a count with low confidence is an estimate, with the windows as evidence a
   assert.deepEqual(a.evidence.map((e: any) => [e.id, e.ref, e.type]), [[1, 'win1', 'window'], [2, 'win2', 'window']]);
   assert.deepEqual(JSON.parse(a.evidence[0].bbox), [10, 10, 30, 14]);
   assert.match(a.note, /проверьте/);
+});
+
+test('a detection under its class threshold + margin is weak (thresholds.json): drawn yellow', () => {
+  assert.equal(isWeak('window', 0.55), true);        // window: 0.45 + 0.15
+  assert.equal(isWeak('window', 0.8), false);
+  assert.equal(isWeak('door', 0.52), false);         // door: 0.35 + 0.15
+  assert.equal(isWeak('toilet', 0.32), true);        // toilet: 0.25 + 0.15
+  const a: any = toAnswer({
+    reply: 'ok', confidence: 'low',
+    calls: [{ tool: 'count', args: { cls: 'window' }, result: { answer: 2, unit: 'шт', ids: ['win1', 'win2'] } }],
+  }, { ...scene, objects: scene.objects.map(o => (o.id === 'win2' ? { ...o, conf: 0.5 } : o)) });
+  assert.deepEqual(a.evidence.map((e: any) => [e.ref, e.weak]), [['win1', false], ['win2', true]]);
 });
 
 test('a highlight with high confidence is answered; ids come from the action too', () => {
