@@ -14,9 +14,9 @@ import { assertBudget, recordUsage, type Usage } from './usage.js';
 
 export const RASTER_URL = (process.env.RASTER_URL ?? '').replace(/\/+$/, '');
 export const rasterEnabled = () => RASTER_URL !== '';
-// Reading a sheet: seconds for a small plan, minutes for a big drawing sheet (a 14000 px school plan took about 6 minutes on a laptop CPU).
+// Reading a sheet: seconds for a small plan, minutes for a big drawing sheet (a 14000 px school plan took about 6 minutes: ~100 calls of the model).
 // The service keeps working after we stop waiting and caches the result, so a repeated upload of the same file is instant.
-const ANALYZE_TIMEOUT_MS = Number(process.env.RASTER_TIMEOUT_S ?? 600) * 1000;
+const ANALYZE_TIMEOUT_MS = Number(process.env.RASTER_TIMEOUT_S ?? 1800) * 1000;
 const ASK_TIMEOUT_MS = 90_000;
 /** Reading a sheet is heavy (a model and several calls): few at once, the rest wait. */
 export const rasterSlots = new Semaphore(limit('RASTER_PARALLEL', 2));
