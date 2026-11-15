@@ -967,8 +967,8 @@ def test_tiled_inventory_keeps_points_in_tile_core(monkeypatch):
     assert inv["method"] == "tiles" and inv["tiles"] == len(calls) and inv["doors"] == 0 and inv["floors"] == 1
 
 
-def test_clear_cache_moves_scenes_to_backup(tmp_path, monkeypatch):
-    """Кнопка «Очистить кэш»: планы и кэш ответов переносятся в scenes_backup_<время>, ничего не удаляется."""
+def test_clear_cache_removes_scenes(tmp_path, monkeypatch):
+    """Кнопка «Очистить кэш»: планы и кэш ответов удаляются, резервных копий не остаётся."""
     import json
     import server.app as A
     scenes = tmp_path / "scenes"
@@ -976,7 +976,6 @@ def test_clear_cache_moves_scenes_to_backup(tmp_path, monkeypatch):
     (scenes / "plan-1" / "scene.json").write_text(json.dumps({}))
     (scenes / "cache.sqlite").write_text("")
     monkeypatch.setattr(A, "SCENES", scenes)
-    r = A.clear_cache()
-    assert r["plans"] == 1 and r["moved"] == 2 and not any(scenes.iterdir())
-    assert (tmp_path / r["backup"] / "plan-1" / "scene.json").exists()
-    assert A.clear_cache() == {"moved": 0, "plans": 0, "backup": None}
+    assert A.clear_cache() == {"removed": 2, "plans": 1}
+    assert not any(scenes.iterdir()) and [p.name for p in tmp_path.iterdir()] == ["scenes"]
+    assert A.clear_cache() == {"removed": 0, "plans": 0}

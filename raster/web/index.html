@@ -49,7 +49,7 @@
   <label><input type="file" id="file" accept="image/*" hidden><button id="uploadBtn" type="button">Загрузить скан…</button></label>
   <button id="scaleBtn" type="button" title="кликните две точки на плане и введите расстояние между ними">Масштаб: 2 точки</button>
   <button id="autoScaleBtn" type="button" title="ИИ читает подписи площадей или шкалу на плане (один вызов)">Авто-масштаб</button>
-  <button id="clearCacheBtn" type="button" title="разобранные планы и кэш ответов переносятся в резервную папку; следующая загрузка разберёт файл заново">Очистить кэш</button>
+  <button id="clearCacheBtn" type="button" title="разобранные планы и кэш ответов удаляются; следующая загрузка разберёт файл заново">Очистить кэш</button>
   <span class="status" id="status"></span>
 </header>
 <main>
@@ -176,13 +176,13 @@ $('#stage').addEventListener('click', async e => {
   } catch (err) { say('Ошибка: ' + err.message, 'bot'); }
 });
 $('#clearCacheBtn').onclick = async () => {
-  if (!confirm('Очистить кэш? Все разобранные планы и кэш ответов будут перенесены в резервную папку, '
+  if (!confirm('Очистить кэш? Все разобранные планы и кэш ответов будут удалены, '
                + 'каждый файл придётся загрузить заново (разбор снова стоит денег).')) return;
   try {
     const r = await api('/api/cache/clear', { method: 'POST' });
     planId = null; history = []; $('#log').innerHTML = ''; $('#stage').innerHTML = ''; $('#legend').innerHTML = '';
     await loadPlans();
-    say(r.moved ? `Кэш очищен: планов ${r.plans}, перенесено в ${r.backup}. Загрузите план заново.` : 'Кэш уже пуст.', 'bot');
+    say(r.removed ? `Кэш очищен: удалено планов ${r.plans}. Загрузите план заново.` : 'Кэш уже пуст.', 'bot');
   } catch (err) { say('Ошибка: ' + err.message, 'bot'); }
 };
 $('#autoScaleBtn').onclick = async () => {

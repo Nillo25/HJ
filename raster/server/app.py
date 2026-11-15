@@ -88,18 +88,14 @@ def plans():
 
 @app.post("/api/cache/clear")
 def clear_cache():
-    """Сброс кэша: разобранные планы и кэш ответов чата переносятся в соседнюю папку scenes_backup_<время>
-    (ничего не удаляется). Следующая загрузка каждого файла разберёт его заново. Словарь пользователя не трогаем."""
-    import time
+    """Сброс кэша: разобранные планы и кэш ответов чата удаляются (резервных копий не храним — они копились
+    и раздували папку). Следующая загрузка каждого файла разберёт его заново. Словарь пользователя не трогаем."""
+    import shutil
     items = list(SCENES.iterdir())
-    if not items:
-        return {"moved": 0, "plans": 0, "backup": None}
-    backup = SCENES.parent / f"{SCENES.name}_backup_{time.strftime('%H%M%S')}"
-    backup.mkdir(parents=True, exist_ok=True)
     n_plans = sum(1 for p in items if (p / "scene.json").exists())
     for p in items:
-        p.rename(backup / p.name)
-    return {"moved": len(items), "plans": n_plans, "backup": backup.name}
+        shutil.rmtree(p) if p.is_dir() else p.unlink()
+    return {"removed": len(items), "plans": n_plans}
 
 
 @app.post("/api/plans")
