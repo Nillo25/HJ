@@ -10,7 +10,7 @@ import { Readable } from 'node:stream';
 import path from 'node:path';
 
 import {
-  enforceQuota, INDEX_VERSION, KINDS, SOURCE_BY_KIND, UPLOADS, cleanupUploads, elementCount, ensureUploads, filesOf, floorsOf,
+  clearAll, enforceQuota, INDEX_VERSION, KINDS, SOURCE_BY_KIND, UPLOADS, cleanupUploads, elementCount, ensureUploads, filesOf, floorsOf,
   getSession, listSessions, queryElements, metaPath,
   type Element, type Kind, type Session,
 } from './db.js';
@@ -18,7 +18,7 @@ import { ask } from './ask.js';
 import { Semaphore, dailyLimit, limit, rateLimit } from './limits.js';
 import { PYTHON } from './py.js';
 import {
-  RasterError, analyze, rasterAutoScale, rasterEnabled, rasterImage, rasterInfo, rasterPlan, rasterReanalyze, rasterSetScale,
+  RasterError, analyze, rasterAutoScale, rasterClearCache, rasterEnabled, rasterImage, rasterInfo, rasterPlan, rasterReanalyze, rasterSetScale,
 } from './raster.js';
 import { BudgetError, countQuestion, usageSnapshot } from './usage.js';
 
@@ -38,6 +38,7 @@ app.use('/api/ask', rateLimit('question', limit('RATE_ASK_PER_MIN', 60)));
 app.use('/api/ask', dailyLimit('question', limit('RATE_ASK_PER_DAY', 50)));
 app.use('/api/upload', bodyLimit({ maxSize: (MAX_MB + 1) * 1e6, onError: (c) => c.json({ error: `The file is larger than ${MAX_MB} MB.` }, 413) }));
 app.use('/api/upload', rateLimit('upload', limit('RATE_UPLOAD_PER_MIN', 6)));
+app.use('/api/cache/clear', rateLimit('cache-clear', limit('RATE_CACHE_CLEAR_PER_MIN', 2)));
 const slots = new Semaphore(limit('MAX_PARALLEL_INDEX', 2));
 
 /* ------------------------------------------------------------ drawings */
@@ -291,6 +292,18 @@ function finish(job: Job, ok: boolean, why?: string) {
   if (!ok && why) job.log.push(why);
   if (ok) { const s = getSession(job.id); job.drawings = s ? [card(s)] : []; }
 }
+
+/**
+ * The "Clear cache" button: every upload, the question cache and the floor-plan service's scenes are deleted.
+ * The next upload of any file parses it again (and a PNG costs a Claude call again). Files being parsed are kept.
+ */
+app.post('/api/cache/clear', async (c) => {
+  const busy = new Set([...jobs.values()].filter((j) => !j.finished).map((j) => j.id));
+  const { files, templates } = clearAll(busy);
+  for (const [id, j] of jobs) if (j.finished) jobs.delete(id);
+  const raster = await rasterClearCache();
+  return c.json({ files, templates, kept_busy: busy.size, raster });
+});
 
 app.post('/api/upload', async (c) => {
   const form = await c.req.parseBody({ all: true });

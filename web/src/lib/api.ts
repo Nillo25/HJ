@@ -13,6 +13,8 @@ export type Drawing = {
   raster?: boolean;
   /** what reading the sheet cost in Claude calls (dollars); the service reports money, not tokens */
   raster_cost_usd?: number;
+  /** when the file was uploaded (ms since epoch); uploads are kept on the server for UPLOAD_TTL_HOURS */
+  created_at?: number;
   capabilities?: { counts?: string; areas?: string; text?: string; reason?: string } | null;
   files?: { format: string; role?: string }[];
 };
@@ -83,6 +85,8 @@ async function j<T>(r: Response): Promise<T> {
   return r.json() as Promise<T>;
 }
 
+/** Every file uploaded to this server and still kept, newest first (the server sorts). */
+export const listDrawings = () => fetch('/api/drawings').then(r => j<{ drawings: Drawing[] }>(r)).then(b => b.drawings);
 export const getDrawing = (id: string) => fetch(`/api/drawings/${id}`).then(r => j<Drawing>(r));
 export const getPlan = (id: string, floor?: number | null) => fetch(`/api/drawings/${id}/plan${floor != null ? `?floor=${floor}` : ''}`).then(r => (r.ok ? (r.json() as Promise<Plan>) : null));
 export const getUsage = () => fetch('/api/usage').then(r => j<UsageTotals>(r));
@@ -141,6 +145,9 @@ async function post<T>(url: string, body?: unknown): Promise<T> {
   if (!r.ok) throw new Error(((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? `${r.status} ${r.statusText}`);
   return r.json() as Promise<T>;
 }
+export type ClearResult = { files: number; templates: number; kept_busy: number; raster: { plans: number } | { error: string } | null };
+/** Delete every upload, the question cache and the floor-plan service's scenes. */
+export const clearCache = () => post<ClearResult>('/api/cache/clear');
 export const getRaster = (id: string) => fetch(`/api/drawings/${id}/raster`).then(r => j<RasterInfo>(r));
 export type ScaleBody = { x1: number; y1: number; x2: number; y2: number; length: number; unit: string };
 export const setRasterScale = (id: string, b: ScaleBody) => post<{ px_per_m: number }>(`/api/drawings/${id}/raster/scale`, b);

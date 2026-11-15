@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { ask, getDrawing, type Answer, type Drawing, type Part } from './lib/api';
+import { ask, clearCache, getDrawing, type Answer, type Drawing, type Part } from './lib/api';
 import { AnswerCard } from './components/AnswerCard';
 import { EvidenceTable } from './components/EvidenceTable';
 import { FilePanel } from './components/FilePanel';
@@ -26,6 +26,9 @@ export default function App() {
   const [ifcTab, setIfcTab] = useState<'3d' | 'plan'>('3d');
   const [pick, setPick] = useState<Part | null>(null);       // a part of an area breakdown shown on the plan
   const [scalePts, setScalePts] = useState<[number, number][] | null>(null);   // raster plan: points picked on the plan for the scale
+  const [filesKey, setFilesKey] = useState(0);           // bump: FilePanel reloads the list of files
+  const [notice, setNotice] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
 
   // after a reload, come back to the file that was open (uploads live on the server for a day)
   useEffect(() => {
@@ -40,6 +43,34 @@ export default function App() {
     setQuestion('');
     setAsked(null);
     setAnswer(null);          // a new file starts a new conversation
+  }
+
+  // a file uploaded earlier, chosen in the list: open it like after a reload (a new file starts a new conversation)
+  async function select(id: string) {
+    const d = await getDrawing(id);       // throws when the upload has expired: FilePanel says so
+    setPick(null);
+    setScalePts(null);
+    loaded(d);
+  }
+
+  // "Clear cache": every upload, the question cache and the floor-plan service's scenes are deleted on the server
+  async function clearAll() {
+    if (!confirm('Clear the cache? Every uploaded file, the question cache and the parsed raster plans are deleted. '
+      + 'Each file has to be uploaded again, and reading a PNG plan costs a Claude call again.')) return;
+    setClearing(true);
+    try {
+      const r = await clearCache();
+      setCurrent(null); remember(null);
+      setQuestion(''); setAsked(null); setAnswer(null); setPick(null); setScalePts(null);
+      const raster = r.raster == null ? '' : 'error' in r.raster ? ` Floor-plan service not cleared: ${r.raster.error}` : `, ${r.raster.plans} raster plans`;
+      setNotice(`Cache cleared: ${r.files} files, ${r.templates} cached questions${raster}.` + (r.kept_busy ? ` ${r.kept_busy} file(s) still being parsed were kept.` : ''));
+    } catch (e) {
+      setNotice(`The cache was not cleared: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setClearing(false);
+      setFilesKey(k => k + 1);
+      setUsageKey(k => k + 1);
+    }
   }
 
   async function run(q: string) {
@@ -71,13 +102,19 @@ export default function App() {
           <h1 className="text-xl font-semibold tracking-tight">North Line</h1>
           <p className="text-sm text-slate-500">Upload a drawing, ask a question, see the answer marked on the drawing.</p>
         </div>
-        <UsageBar refreshKey={usageKey} />
+        <div className="flex items-center gap-3">
+          <UsageBar refreshKey={usageKey} />
+          <Button variant="outline" onClick={clearAll} disabled={clearing || loading} className="h-8 px-3 text-xs"
+            title="Delete every uploaded file, the question cache and the parsed raster plans">
+            {clearing ? 'Clearing…' : 'Clear cache'}
+          </Button>
+        </div>
       </header>
 
       <div className="grid gap-5 lg:grid-cols-[27rem_minmax(0,1fr)]">
         {/* left: the file, the question, the result */}
         <div className="min-w-0 space-y-5">
-          <FilePanel current={current} onLoaded={loaded} />
+          <FilePanel current={current} onLoaded={d => { setNotice(null); loaded(d); }} onSelect={async id => { setNotice(null); await select(id); }} refreshKey={filesKey} notice={notice} />
 
           <Card>
             <CardHeader><CardTitle>2 · Question</CardTitle></CardHeader>

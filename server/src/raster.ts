@@ -120,6 +120,19 @@ async function getScene(s: Session, rid: string): Promise<RScene> {
   return scene;
 }
 
+/**
+ * Clear the floor-plan service too: its parsed scenes and its chat answer cache (the user glossary stays).
+ * Without the service there is nothing to clear; a failure is reported, it does not stop our own clearing.
+ */
+export async function rasterClearCache(): Promise<{ plans: number } | { error: string } | null> {
+  scenes.clear();
+  if (!rasterEnabled()) return null;
+  try {
+    const r = await (await call('/api/cache/clear', { method: 'POST' })).json() as { plans?: number };
+    return { plans: Number(r.plans ?? 0) };
+  } catch (e) { return { error: (e as Error).message }; }
+}
+
 /** Their classes -> layers of PlanViewer. */
 const LAYER: Record<string, string> = {
   wall: 'walls', door: 'doors', window: 'windows',

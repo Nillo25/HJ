@@ -186,3 +186,21 @@ const cacheGetStmt = cacheDb.prepare('SELECT fn, args FROM question_cache WHERE 
 const cachePutStmt = cacheDb.prepare('INSERT OR IGNORE INTO question_cache(template, fn, args) VALUES (?, ?, ?)');
 export const cacheGet = (t: string) => cacheGetStmt.get(t) as { fn: string; args: string } | undefined;
 export const cachePut = (t: string, fn: string, args: string) => cachePutStmt.run(t, fn, args);
+
+/**
+ * Clear everything this server keeps: every upload (its index, its copy of the file) and the question cache.
+ * Uploads being parsed right now are kept (their job still writes into the folder). Returns how many files were removed.
+ */
+export function clearAll(busy: Set<string>): { files: number; templates: number } {
+  let files = 0;
+  if (existsSync(UPLOADS)) {
+    for (const u of readdirSync(UPLOADS)) {
+      if (!UID_RE.test(u) || busy.has(u)) continue;
+      open.get(u)?.db.close(); open.delete(u);
+      rmSync(path.join(UPLOADS, u), { recursive: true, force: true });
+      files++;
+    }
+  }
+  const templates = cacheDb.prepare('DELETE FROM question_cache').run().changes;
+  return { files, templates };
+}

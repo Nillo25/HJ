@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { upload, watchJob, type Drawing, type Kind } from '../lib/api';
+import { listDrawings, upload, watchJob, type Drawing, type Kind } from '../lib/api';
 import { pdfFirstPageToPng } from '../lib/pdfToPng';
 import { Badge, Button, Card, CardBody, CardHeader, CardTitle, cn } from './ui';
 
@@ -24,7 +24,16 @@ const STEPS = ['Upload', 'Parse', 'Ready'];
  * Part one of the screen: the file. Pick the kind, drop one file, watch it being parsed, then ask.
  * A new file can replace the current one at any time; a failed replacement keeps the current file.
  */
-export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLoaded: (d: Drawing, parsedMs: number) => void }) {
+export function FilePanel({ current, onLoaded, onSelect, refreshKey = 0, notice }: {
+  current: Drawing | null;
+  /** bump to reload the list of files (after the cache is cleared) */
+  refreshKey?: number;
+  /** a one-line message from the app (what clearing the cache removed) */
+  notice?: string | null;
+  onLoaded: (d: Drawing, parsedMs: number) => void;
+  /** open a file uploaded earlier (from the list of files kept on the server) */
+  onSelect: (id: string) => Promise<void>;
+}) {
   const input = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<Phase>({ name: 'idle' });
   const [replacing, setReplacing] = useState(false);
@@ -33,6 +42,23 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
   const [converted, setConverted] = useState<{ from: string; pages: number } | null>(null);   // a scanned PDF shown as a PNG
   const [now, setNow] = useState(Date.now());
   const busy = phase.name === 'uploading' || phase.name === 'parsing' || phase.name === 'converting';
+  const [files, setFiles] = useState<Drawing[]>([]);   // every file still kept on the server, newest first
+
+  // refresh the list whenever the current file changes (a new upload adds one; an expired one drops out)
+  useEffect(() => { listDrawings().then(setFiles).catch(() => setFiles([])); }, [current?.id, refreshKey]);
+
+  async function choose(id: string) {
+    if (!id || id === current?.id) return;
+    setPhase({ name: 'idle' });
+    setReplacing(false);
+    setParsedMs(null);
+    setConverted(null);
+    try { await onSelect(id); }
+    catch {
+      setFiles(f => f.filter(x => x.id !== id));
+      setPhase({ name: 'error', message: 'This file is no longer on the server (uploads are kept for a limited time). Upload it again.' });
+    }
+  }
 
   // after a reload: the file was a converted PDF, say so again
   useEffect(() => {
@@ -108,6 +134,17 @@ export function FilePanel({ current, onLoaded }: { current: Drawing | null; onLo
         )}
       </CardHeader>
       <CardBody className="space-y-3">
+        {notice && <p className="rounded-md bg-emerald-50 p-2 text-sm text-emerald-900" role="status">{notice}</p>}
+        {files.length > 0 && !busy && (
+          <div className="space-y-1">
+            <label htmlFor="file-select" className="text-xs font-medium text-slate-600">Open file</label>
+            <select id="file-select" value={current?.id ?? ''} onChange={e => choose(e.target.value)}
+              className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-slate-900">
+              {!current && <option value="">Choose an uploaded file…</option>}
+              {files.map(f => <option key={f.id} value={f.id}>{f.name} · {KIND_LABEL[f.kind]}</option>)}
+            </select>
+          </div>
+        )}
         {step >= 0 && (
           <ol className="flex items-center gap-2 text-xs" aria-label="Progress">
             {STEPS.map((s, i) => (
