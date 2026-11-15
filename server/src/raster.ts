@@ -1,0 +1,383 @@
+/**
+ * Raster plans (PNG, and PDF scans the browser turns into PNG) are read by the floor-plan service in raster/
+ * (YOLO + a model for the sheet, FastAPI). This file is the only place that knows its API: it uploads the image,
+ * asks questions and turns its scene and answers into ours (Answer, Evidence, Plan).
+ *
+ * RASTER_URL empty = no service: a PNG is shown as uploaded and questions are refused with a reason, as before.
+ * The service has no authentication and no limits of its own: keep it on a private network, our limits stand in front.
+ */
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { SOURCE_BY_KIND, metaPath, type Session } from './db.js';
+import { Semaphore, limit } from './limits.js';
+import { assertBudget, recordUsage, type Usage } from './usage.js';
+
+export const RASTER_URL = (process.env.RASTER_URL ?? '').replace(/\/+$/, '');
+export const rasterEnabled = () => RASTER_URL !== '';
+// Reading a sheet: seconds for a small plan, minutes for a big drawing sheet (a 14000 px school plan took about 6 minutes: ~100 calls of the model).
+// The service keeps working after we stop waiting and caches the result, so a repeated upload of the same file is instant.
+const ANALYZE_TIMEOUT_MS = Number(process.env.RASTER_TIMEOUT_S ?? 1800) * 1000;
+const ASK_TIMEOUT_MS = 90_000;
+/** Reading a sheet is heavy (a model and several calls): few at once, the rest wait. */
+export const rasterSlots = new Semaphore(limit('RASTER_PARALLEL', 2));
+
+export class RasterError extends Error {
+  constructor(message: string, readonly status = 502) { super(message); }
+}
+
+const ID_RE = /^[\w-]+$/;
+const MODEL_NAME = 'floorplan-service';
+
+/* ------------------------------------------------------------------ service API */
+
+async function call(pathname: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<Response> {
+  if (!rasterEnabled()) throw new RasterError('The floor-plan service is not configured (RASTER_URL).', 503);
+  const { timeoutMs = ASK_TIMEOUT_MS, ...rest } = init;
+  let r: Response;
+  try {
+    r = await fetch(`${RASTER_URL}${pathname}`, { ...rest, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (e: any) {
+    const timeout = e?.name === 'TimeoutError' || e?.name === 'AbortError';
+    throw new RasterError(timeout ? `The floor-plan service did not answer in ${Math.round(timeoutMs / 1000)} s.` : 'The floor-plan service is unavailable.');
+  }
+  if (!r.ok) {
+    let why = `${r.status}`;
+    try { const j: any = await r.json(); why = typeof j?.detail === 'string' ? j.detail : JSON.stringify(j?.detail ?? j); } catch { /* not json */ }
+    throw new RasterError(`Floor-plan service: ${why}`, r.status === 404 ? 404 : 502);
+  }
+  return r;
+}
+
+const jsonPost = (body: unknown): RequestInit => ({
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+});
+
+/** Upload the image; the service answers with the scene id (name + hash of the file: the same file gives the same id). */
+async function upload(file: string, name: string): Promise<string> {
+  const fd = new FormData();
+  fd.append('file', new Blob([readFileSync(file)]), name);
+  const r = await call('/api/plans', { method: 'POST', body: fd, timeoutMs: ANALYZE_TIMEOUT_MS });
+  const id = (await r.json() as { id?: string }).id;
+  if (!id || !ID_RE.test(id)) throw new RasterError('Floor-plan service returned no plan id.');
+  return id;
+}
+
+function patchMeta(s: Session, patch: Record<string, unknown>) {
+  Object.assign(s.meta, patch);
+  writeFileSync(metaPath(s.uid), JSON.stringify(s.meta));
+}
+
+const sourceFile = (s: Session) => path.join(s.dir, 'data', SOURCE_BY_KIND.png, s.meta.fileName);
+
+/** Read the sheet (once per upload; an existing scene is reused by the service). Budget and parallelism are enforced here. */
+export async function analyze(s: Session): Promise<string> {
+  if (s.meta.raster && ID_RE.test(s.meta.raster)) return s.meta.raster;
+  assertBudget();
+  const file = sourceFile(s);
+  if (!existsSync(file)) throw new RasterError('The uploaded image is gone.', 404);
+  await rasterSlots.acquire();
+  try {
+    const id = await upload(file, s.meta.fileName);
+    patchMeta(s, { raster: id });
+    await settleCost(s);
+    return id;
+  } finally { rasterSlots.release(); }
+}
+
+/** The scene was lost on the service side (restart): read the sheet again from our copy of the image. */
+async function reanalyzeFromFile(s: Session): Promise<string> {
+  delete s.meta.raster; s.meta.rasterCost = 0; scenes.delete(s.uid); lastMarks.delete(s.uid);
+  return analyze(s);
+}
+
+/**
+ * What reading the sheet cost (Claude, in dollars, kept by the service in the scene: the upload, a re-read, the scale).
+ * The service reports money, not tokens: it goes to the usage totals and the daily budget as cost only.
+ */
+async function settleCost(s: Session): Promise<void> {
+  try {
+    const sc = await (await call(`/api/plans/${s.meta.raster}`)).json() as RScene;
+    scenes.set(s.uid, { at: Date.now(), rid: s.meta.raster!, scene: sc });
+    const total = Number(sc.meta?.sheet_cost_usd ?? 0);
+    const delta = total - (s.meta.rasterCost ?? 0);
+    if (delta > 0) { recordUsage(MODEL_NAME, 0, 0, delta); patchMeta(s, { rasterCost: total }); }
+  } catch { /* the cost is only reported, never needed for the answer */ }
+}
+
+/* ------------------------------------------------------------------ scene -> our shapes */
+
+type RObject = { id: string; class: string; polygon: number[][]; conf: number; room?: string | null };
+export type RScene = { width: number; height: number; meta?: Record<string, any>; objects: RObject[]; rooms: RObject[]; stale?: boolean };
+
+const scenes = new Map<string, { at: number; rid: string; scene: RScene }>();
+const SCENE_TTL_MS = 30_000;
+
+async function getScene(s: Session, rid: string): Promise<RScene> {
+  const hit = scenes.get(s.uid);
+  if (hit && hit.rid === rid && Date.now() - hit.at < SCENE_TTL_MS) return hit.scene;
+  const scene = await (await call(`/api/plans/${rid}`)).json() as RScene;
+  scenes.set(s.uid, { at: Date.now(), rid, scene });
+  return scene;
+}
+
+/**
+ * Clear the floor-plan service too: its parsed scenes and its chat answer cache (the user glossary stays).
+ * Without the service there is nothing to clear; a failure is reported, it does not stop our own clearing.
+ */
+export async function rasterClearCache(): Promise<{ plans: number } | { error: string } | null> {
+  scenes.clear();
+  if (!rasterEnabled()) return null;
+  try {
+    const r = await (await call('/api/cache/clear', { method: 'POST' })).json() as { plans?: number };
+    return { plans: Number(r.plans ?? 0) };
+  } catch (e) { return { error: (e as Error).message }; }
+}
+
+/** Their classes -> layers of PlanViewer. */
+const LAYER: Record<string, string> = {
+  wall: 'walls', door: 'doors', window: 'windows',
+  toilet: 'fixtures', sink: 'fixtures', bathtub: 'fixtures', shower: 'fixtures', sauna_bench: 'fixtures',
+};
+const layerOf = (cls: string) => (cls.startsWith('room_') ? 'rooms' : LAYER[cls] ?? 'fixtures');
+
+const bboxOf = (poly: number[][]): number[] | null => {
+  if (!poly?.length) return null;
+  const xs = poly.map((p) => p[0]), ys = poly.map((p) => p[1]);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)].map((v) => Math.round(v * 10) / 10);
+};
+
+/** Numeric ids (ours): objects first, then rooms, in the order of the scene. */
+function numbering(scene: RScene): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const o of [...scene.objects, ...scene.rooms]) if (!m.has(o.id)) m.set(o.id, m.size + 1);
+  return m;
+}
+
+export function planFromScene(scene: RScene, background: string) {
+  const ids = numbering(scene);
+  const layers: Record<string, { id: number; label: string; polygon: number[][]; bbox: number[] }[]> = {};
+  for (const o of [...scene.rooms, ...scene.objects]) {
+    const bb = bboxOf(o.polygon);
+    if (!bb) continue;
+    (layers[layerOf(o.class)] ??= []).push({ id: ids.get(o.id)!, label: `${o.class.replace('room_', '')} ${o.id}`, polygon: o.polygon, bbox: bb });
+  }
+  return { viewBox: [0, 0, scene.width, scene.height] as number[], background, overlay: true, layers };
+}
+
+/**
+ * Weak detection = the floor-plan pipeline's "borderline" rule (raster/fp/query.py): kept with a confidence
+ * under its class threshold + near_margin, both from raster/fp/thresholds.json (tuned on CubiCasa5K val).
+ * The screen draws such objects yellow: check them on the plan. No file = nothing is called weak.
+ */
+const CAL: Record<string, { conf?: number }> & { _calibration?: { near_margin?: number } } = (() => {
+  try { return JSON.parse(readFileSync(path.resolve('../raster/fp/thresholds.json'), 'utf8')); } catch { return {}; }
+})();
+export function isWeak(cls: string, conf: number): boolean {
+  const thr = CAL[cls]?.conf ?? CAL.default?.conf;
+  if (thr == null) return false;
+  return conf < thr + (CAL._calibration?.near_margin ?? 0.15);
+}
+
+function evidenceOf(scene: RScene, found: string[]) {
+  const ids = numbering(scene);
+  const byId = new Map([...scene.objects, ...scene.rooms].map((o) => [o.id, o]));
+  const seen = new Set<string>();
+  const out: any[] = [];
+  for (const rid of found) {
+    const o = byId.get(rid);
+    if (!o || seen.has(rid)) continue;
+    seen.add(rid);
+    const isRoom = o.class.startsWith('room_');
+    const bb = bboxOf(o.polygon);
+    out.push({
+      kind: 'raster', id: ids.get(rid), ref: rid,
+      type: isRoom ? 'room' : o.class, subtype: isRoom ? o.class.replace('room_', '') : null,
+      label: !isRoom && o.room ? `in ${o.room}` : null,
+      bbox: bb ? JSON.stringify(bb) : null, page: null, area: null, length: null, volume: null,
+      confidence: Math.round(o.conf * 100) / 100, weak: isWeak(o.class, o.conf),
+    });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ answers */
+
+type RChat = {
+  reply: string; scene_changed?: boolean; action?: { type?: string; ids?: string[] }; confidence?: 'high' | 'medium' | 'low' | null;
+  calls?: { tool: string; args?: Record<string, unknown>; result?: { answer?: unknown; unit?: string | null; ids?: string[]; note?: string | null; evidence?: { id?: string }[] } }[];
+  parsed_by?: string; answered_by?: string | null; cost_usd?: number; latency_ms?: number;
+};
+
+const CONFIDENCE = { high: 0.95, medium: 0.8, low: 0.5 } as const;
+/** Their units (Russian "шт", "px2" when no scale is set) -> ours. */
+const UNIT: Record<string, string> = { 'шт': 'count', 'шт.': 'count', px2: 'px²', 'м2': 'm2', 'м²': 'm2', 'м': 'm' };
+const unitOf = (u?: string | null) => (u ? UNIT[u.toLowerCase()] ?? u : 'count');
+
+/** Their chat reply -> our Answer. Pure: tested without the service. */
+export function toAnswer(chat: RChat, scene: RScene, usage: Usage[] = []) {
+  const calls = chat.calls ?? [];
+  const found = [...new Set([
+    ...(chat.action?.ids ?? []),
+    ...calls.flatMap((c) => c.result?.ids ?? []),
+    ...calls.flatMap((c) => (c.result?.evidence ?? []).map((e) => e.id).filter((x): x is string => !!x)),
+  ])];
+  const evidence = evidenceOf(scene, found);
+  const cost = chat.cost_usd ?? 0;
+  const base = {
+    route: cost > 0 ? 'llm' : 'template', engine: 'raster', usage, cost_usd: cost, latency_ms: chat.latency_ms,
+    fn: calls[0]?.tool, args: calls[0]?.args,
+  };
+  const noValue = (a: unknown) => a == null || (Array.isArray(a) && a.length === 0);
+  if (!calls.length || chat.parsed_by === 'none' || (!found.length && calls.every((c) => noValue(c.result?.answer)))) {
+    return { ...base, status: 'refused' as const, reason: chat.reply, missing: 'question', evidence: [] };
+  }
+  const withAnswer = [...calls].reverse().find((c) => c.result?.answer != null);
+  const raw = withAnswer?.result?.answer;
+  const numeric = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' && !isNaN(Number(raw)) ? Number(raw) : null;
+  const level = chat.confidence ?? 'low';
+  const note = [...calls.map((c) => c.result?.note).filter(Boolean), level !== 'high' ? 'Read from a raster image: check on the plan.' : null].join(' ') || undefined;
+  return {
+    ...base,
+    status: (level === 'high' ? 'answered' : 'estimated') as 'answered' | 'estimated',
+    answer: numeric ?? chat.reply, unit: numeric != null ? unitOf(withAnswer?.result?.unit) : undefined,
+    confidence: CONFIDENCE[level], evidence, note,
+  };
+}
+
+/**
+ * The last numbered answer per upload: the screen numbers marks 1..n in evidence order, and people correct by that
+ * number ("there is no window 18"). The service only knows its own ids (win18), so the next question carries this
+ * table as history; its chat prompt already takes ids for remove_objects from the previous result.
+ */
+const lastMarks = new Map<string, { question: string; reply: string; refs: string[] }>();
+const MAX_MARKS = 300;
+
+/** History for the service: the previous question and an answer that spells out number -> element id. */
+export function marksHistory(last: { question: string; reply: string; refs: string[] } | undefined) {
+  if (!last?.refs.length) return [];
+  const table = last.refs.slice(0, MAX_MARKS).map((r, i) => `${i + 1}=${r}`).join(', ');
+  return [
+    { role: 'user', content: last.question },
+    { role: 'assistant', content: `${last.reply}\n[What the user sees NOW: these marks, numbered in the table and on the plan (renumbered after every correction, so a number may now be a different object than before). When the user names a number, use this mapping. number=element id: ${table}]` },
+  ];
+}
+
+/**
+ * "No window 18" / "номер 18" / "#18": the number the person sees on the screen, turned into the service's element id
+ * right in the message, so the model does not have to match 18 to win19 (it confuses that with its own win18).
+ * Only a number after a marker word or an object word; "12 windows" (a count) is left alone.
+ */
+const NUMBER_REF = new RegExp(
+  String.raw`(?:№|#|(?<!\p{L})(?:номер\p{L}*|number|nr\.?|no\.)|(?<!\p{L})(?:windows?|doors?|toilets?|sinks?|rooms?|objects?|marks?|окн\p{L}*|двер\p{L}*|унитаз\p{L}*|раковин\p{L}*|комнат\p{L}*|объект\p{L}*|отметк\p{L}*)(?:\s+(?:номер\p{L}*|number|№|#))?)\s*(\d{1,4})(?!\d)`,
+  'giu');
+export function withScreenNumbers(question: string, refs: string[] | undefined): string {
+  if (!refs?.length) return question;
+  const hits = new Map<number, string>();
+  for (const m of question.matchAll(NUMBER_REF)) {
+    const n = Number(m[1]);
+    if (n >= 1 && n <= refs.length) hits.set(n, refs[n - 1]);
+  }
+  if (!hits.size) return question;
+  return `${question}\n[Numbers on the user's screen: ${[...hits].map(([n, r]) => `${n} = element ${r}`).join(', ')}]`;
+}
+
+export async function rasterAsk(s: Session, question: string, t0: number) {
+  if (!rasterEnabled()) {
+    return { status: 'refused', reason: 'raster plans are not read in this deployment (no floor-plan service configured)',
+             missing: 'source_model', route: 'none', usage: [], cost_usd: 0, latency_ms: Date.now() - t0 };
+  }
+  let rid = await analyze(s);
+  let r: Response;
+  try {
+    const last = lastMarks.get(s.uid);
+    r = await call(`/api/plans/${rid}/chat`, jsonPost({ message: withScreenNumbers(question, last?.refs), history: marksHistory(last) }));
+  } catch (e) {
+    if (!(e instanceof RasterError) || e.status !== 404) throw e;
+    rid = await reanalyzeFromFile(s);                    // the service forgot the scene: read the sheet again, once
+    r = await call(`/api/plans/${rid}/chat`, jsonPost({ message: question, history: [] }));   // a new scene: old numbers mean nothing
+  }
+  const chat = await r.json() as RChat;
+  const used = (chat.cost_usd ?? 0) > 0 ? [recordUsage(MODEL_NAME, 0, 0, chat.cost_usd!)] : [];
+  if (chat.scene_changed) scenes.delete(s.uid);          // a correction changed the scene: never answer or draw from the cached copy
+  const scene = await getScene(s, rid);
+  const out: any = toAnswer(chat, scene, used);
+  // a correction ("there is no window 18") marks nothing itself: show the previous marks again on the changed scene,
+  // without what was removed and numbered afresh, so the screen and the next question share the same numbers
+  const last = lastMarks.get(s.uid);
+  if (chat.scene_changed && !out.evidence?.length && last) out.evidence = evidenceOf(scene, last.refs);
+  const refs = (out.evidence ?? []).map((e: any) => e.ref).filter((x: unknown): x is string => typeof x === 'string');
+  if (refs.length) lastMarks.set(s.uid, { question: chat.scene_changed && last ? last.question : question, reply: chat.reply, refs });
+  return { ...out, scene_changed: Boolean(chat.scene_changed), latency_ms: Date.now() - t0 };
+}
+
+/* ------------------------------------------------------------------ viewer data and scale */
+
+export async function rasterPlan(s: Session) {
+  const rid = await analyze(s);
+  return planFromScene(await getScene(s, rid), `/api/drawings/${s.uid}/image`);
+}
+
+export async function rasterImage(s: Session): Promise<Response> {
+  const rid = await analyze(s);
+  return call(`/api/plans/${rid}/image`);
+}
+
+/** What the screen needs to say about the reading: scale, whether it is out of date. */
+export async function rasterInfo(s: Session) {
+  const rid = await analyze(s);
+  const sc = await getScene(s, rid);
+  const scale = sc.meta?.scale ?? {};
+  return {
+    px_per_m: scale.px_per_m ?? null, scale_source: scale.source ?? null, scale_detail: scale.detail ?? null,
+    stale: Boolean(sc.stale), size: [sc.width, sc.height], objects: sc.objects.length, rooms: sc.rooms.length,
+  };
+}
+
+export type ScaleIn = { x1: number; y1: number; x2: number; y2: number; length: number; unit: string };
+
+export async function rasterSetScale(s: Session, b: ScaleIn) {
+  const rid = await analyze(s);
+  const r = await (await call(`/api/plans/${rid}/scale`, jsonPost(b))).json();
+  scenes.delete(s.uid);
+  return r;
+}
+
+/** A missed window or door, clicked on the plan (plan coordinates = the service's image pixels). "Undo" in the chat removes it. */
+export async function rasterAddObject(s: Session, x: number, y: number, cls?: string) {
+  assertBudget();
+  const rid = await analyze(s);
+  // what is there: our detector on a crop around the click, then Haiku if it sees nothing (a cent at most)
+  const r = await (await call(`/api/plans/${rid}/objects`, jsonPost({ x, y, cls: cls ?? null }))).json() as
+    { id: string; cls: string; count: number | null; how: string; cost_usd: number };
+  if (r.cost_usd > 0) recordUsage(MODEL_NAME, 0, 0, r.cost_usd);
+  scenes.delete(s.uid);
+  return r;
+}
+
+/** The Undo button: the last correction of the plan is taken back, no model involved. */
+export async function rasterUndo(s: Session) {
+  const rid = await analyze(s);
+  const r = await (await call(`/api/plans/${rid}/undo`, { method: 'POST' })).json() as { undone: string | null; note: string; changed: boolean };
+  if (r.changed) scenes.delete(s.uid);
+  return r;
+}
+
+export async function rasterAutoScale(s: Session) {
+  assertBudget();
+  const rid = await analyze(s);
+  const r = await (await call(`/api/plans/${rid}/scale/auto`, { method: 'POST', timeoutMs: ANALYZE_TIMEOUT_MS })).json();
+  scenes.delete(s.uid);
+  await settleCost(s);
+  return r;
+}
+
+export async function rasterReanalyze(s: Session) {
+  assertBudget();
+  const rid = await analyze(s);
+  await rasterSlots.acquire();
+  try { await call(`/api/plans/${rid}/reanalyze`, { method: 'POST', timeoutMs: ANALYZE_TIMEOUT_MS }); }
+  finally { rasterSlots.release(); }
+  scenes.delete(s.uid); lastMarks.delete(s.uid);   // a new reading: old numbers mean nothing
+  await settleCost(s);
+  return { ok: true };
+}

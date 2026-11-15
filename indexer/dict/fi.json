@@ -1,0 +1,156 @@
+{
+ "lang": "fi",
+ "name": "Finnish",
+ "entries": {
+  "aula": {
+   "type": "corridor",
+   "full": "aula",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "alk": {
+   "type": "bedroom",
+   "full": "alkovi",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "et": {
+   "type": "corridor",
+   "full": "eteinen",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "h": {
+   "type": "other",
+   "full": "asuinhuone (generic habitable room)",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "kt": {
+   "type": "kitchen",
+   "full": "keittotila",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "kph": {
+   "type": "bathroom",
+   "full": "kylpyhuone",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "käyt": {
+   "type": "corridor",
+   "full": "käytävä",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "mh": {
+   "type": "bedroom",
+   "full": "makuuhuone",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "oh": {
+   "type": "living",
+   "full": "olohuone",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "rt": {
+   "type": "living",
+   "full": "ruokailutila",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "s": {
+   "type": "sauna",
+   "full": "sauna",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "var": {
+   "type": "storage",
+   "full": "varasto",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "vh": {
+   "type": "storage",
+   "full": "vaatehuone (walk-in closet, not a bedroom)",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "wc": {
+   "type": "wc",
+   "full": "erillis-wc",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "le-wc": {
+   "type": "wc",
+   "full": "liikuntaesteisille soveltuva wc",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "sk": {
+   "type": "storage",
+   "full": "siivouskomero (cleaning closet)",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "hissi": {
+   "type": "technical",
+   "full": "hissi (lift)",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "pesula": {
+   "type": "technical",
+   "full": "pesula (laundry)",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "kuivaus": {
+   "type": "technical",
+   "full": "kuivaushuone (drying room)",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "kh": {
+   "type": "bathroom",
+   "full": "kylpyhuone (variant)",
+   "src": "dataset"
+  },
+  "ph": {
+   "type": "bathroom",
+   "full": "pesuhuone",
+   "src": "dataset"
+  },
+  "k": {
+   "type": "kitchen",
+   "full": "keittiö",
+   "src": "dataset"
+  },
+  "kk": {
+   "type": "kitchen",
+   "full": "keittokomero",
+   "src": "dataset"
+  },
+  "khh": {
+   "type": "technical",
+   "full": "kodinhoitohuone",
+   "src": "dataset"
+  },
+  "parveke": {
+   "type": "balcony",
+   "full": "parveke",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "terassi": {
+   "type": "balcony",
+   "full": "terassi",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "kellari": {
+   "type": "storage",
+   "full": "kellari",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "jäteh": {
+   "type": "technical",
+   "full": "jätehuone",
+   "src": "legend: Helsinki Ruska floor plans, 'Asuntopohjissa käytetyt tilanimet' (kodit.skanska.fi)"
+  },
+  "tk": {
+   "type": "corridor",
+   "full": "tuulikaappi (porch vestibule)",
+   "src": "knowledge"
+  },
+  "pesuh": {
+   "type": "bathroom",
+   "full": "pesuhuone",
+   "src": "dataset"
+  }
+ }
+}

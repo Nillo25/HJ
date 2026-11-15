@@ -1,0 +1,86 @@
+{
+ "lang": "sv",
+ "name": "Swedish",
+ "entries": {
+  "sov": {
+   "type": "bedroom",
+   "full": "sovrum",
+   "src": "knowledge"
+  },
+  "sovrum": {
+   "type": "bedroom",
+   "full": "sovrum",
+   "src": "knowledge"
+  },
+  "vr": {
+   "type": "living",
+   "full": "vardagsrum",
+   "src": "knowledge"
+  },
+  "vardagsrum": {
+   "type": "living",
+   "full": "vardagsrum",
+   "src": "knowledge"
+  },
+  "k": {
+   "type": "kitchen",
+   "full": "kök",
+   "src": "knowledge"
+  },
+  "kök": {
+   "type": "kitchen",
+   "full": "kök",
+   "src": "knowledge"
+  },
+  "b": {
+   "type": "bathroom",
+   "full": "badrum",
+   "src": "knowledge"
+  },
+  "bad": {
+   "type": "bathroom",
+   "full": "badrum",
+   "src": "knowledge"
+  },
+  "wc": {
+   "type": "wc",
+   "full": "wc",
+   "src": "knowledge"
+  },
+  "klk": {
+   "type": "storage",
+   "full": "klädkammare",
+   "src": "knowledge"
+  },
+  "för": {
+   "type": "storage",
+   "full": "förråd",
+   "src": "knowledge"
+  },
+  "förråd": {
+   "type": "storage",
+   "full": "förråd",
+   "src": "knowledge"
+  },
+  "h": {
+   "type": "corridor",
+   "full": "hall",
+   "src": "knowledge"
+  },
+  "hall": {
+   "type": "corridor",
+   "full": "hall",
+   "src": "knowledge"
+  },
+  "tvr": {
+   "type": "technical",
+   "full": "tvättrum",
+   "src": "knowledge"
+  },
+  "tvätt": {
+   "type": "technical",
+   "full": "tvätt",
+   "src": "knowledge"
+  }
+ }
+}

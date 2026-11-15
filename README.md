@@ -1,116 +1,146 @@
-# Floor plan MVP: скан → объекты → чат
+# North Line: blueprints that answer
 
-```
-скан → preprocess → YOLO-seg → маски → полигоны → scene.json / scene.svg
-                                                     ↓
-              чат → шаблонный разбор ($0) или Claude tool calling → highlight/count/... → подсветка SVG
-```
+Junction 2026, Stoa challenge "Make Blueprints Talk". Upload a drawing, ask a
+question in any language, get an answer with the elements it was computed from.
 
-## Структура
+The idea is **compute, don't infer**. A file is parsed once into a database;
+a question becomes a database query. A model only turns the question into a
+function call, and reads raster images. A wrong answer costs more than a
+refusal, so the system refuses and says what is missing.
 
-| Файл | Что делает |
+## Architecture
+
+    upload ──> Hono API ──spawn──> Python indexer ──> SQLite
+                  │                                      ▲
+    question ─────┼─> template match (Python, free) ─────┤
+                  └─> model parses question (fallback) ──┘
+                                │
+                  answer + evidence + tokens + cost ──> React UI
+
+| Part | Where | Notes |
+|---|---|---|
+| Indexer | `indexer/` | Python, stdlib only (plus `pdfminer.six` for PDF). Own DXF, IFC (STEP) and PDF-table parsers. |
+| API | `server/` | Hono + better-sqlite3. Upload, ask, plan geometry, usage totals. |
+| UI | `web/` | React, Vite, Tailwind, shadcn-style primitives. Builds into `server/public`. |
+| Docs | `docs/` | `adr/` decisions, `contract.md` DB schema and API, `backlog.md` what is left. |
+
+## What each upload type does
+
+| Upload | Source of truth | Shown in the UI |
+|---|---|---|
+| DXF (one file) | DXF | Answer, evidence table, plan drawn from the geometry with highlighted objects |
+| IFC (one file) | IFC | Answer, evidence table, plan per storey from element footprints |
+| Vector PDF sheet | PDF text and tables | Answer, evidence table, the sheet itself with the rows highlighted |
+| PNG plan (cubicasa-like), scanned PDF page | the floor-plan service in `raster/` (YOLO + a model) | Detected doors, windows, fixtures and rooms over the picture; answers are estimates |
+
+One file per upload; the extension decides what it is (DXF, IFC, PDF, PNG). A PDF with no text and no drawn shapes is a scan: the
+browser turns its first page into a PNG. Each upload gets its own index (`uploads/<hash>/index.db`),
+so the same file is parsed once. See `docs/adr/0009`.
+
+## Run
+
+One command for development (installs npm packages on the first run, finds Python 3.10+, starts the API and the web app):
+
+    npm run dev        # from the repo root; open http://localhost:5173
+
+It reads `server/.env` (optional) and honours `PYTHON_BIN`; Ctrl+C stops both. The steps below are the manual equivalent.
+
+    pip install -r indexer/requirements.txt
+    cd server && npm i && cp .env.example .env     # add a model key (optional)
+    cd ../web && npm i && npm run build            # writes server/public (and copies web-ifc.wasm)
+    cd ../server && npm run build && PYTHON_BIN=python3.12 npm start   # http://localhost:3000
+
+### Docker
+
+    docker compose up --build        # http://localhost:3000
+
+    docker build -t northline .
+    docker run --rm -p 3000:3000 -v northline-data:/data --env-file server/.env --env-file raster/.env northline
+
+One image, one service: the compiled API, the built web app, Python 3.11 (indexer with pdfminer.six) and the floor-plan service for
+raster plans (`raster/`: CPU torch, YOLO weights checked against their sha256). `start.sh` runs both; the floor-plan service listens on
+`127.0.0.1:8001` inside the container only (it has no authentication) and is restarted if it dies. About 3 GB image, give it 3-4 GB of
+memory. Uploads, the question cache and raster scenes live in `/data` (`UPLOADS_DIR`, `CACHE_DB`, `FP_SCENES`). Keys come from the
+environment, never from the image: ours (`LLM_PROVIDER`, `LLM_MODEL`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `LLM_PRICE_IN/OUT`, `LLM_RPM`) and
+theirs (`ANTHROPIC_API_KEY`, optional `FP_*` of `raster/README.md`). Other settings: `UPLOAD_MAX_MB` (100), `INDEX_TIMEOUT_S` (120),
+`UPLOAD_TTL_HOURS` (24), `VIEWER_MAX_MB` (150), `RASTER_TIMEOUT_S` (1800: reading a big sheet), `PYTHON_BIN`. `raster/Dockerfile` builds the floor-plan service alone (for the colleagues).
+
+### Railway
+
+One service, built from the root `Dockerfile` (no Root Directory, **no custom start command**: the image starts itself). Variables, all in the
+same place: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `LLM_PROVIDER`, `LLM_MODEL`, `LLM_PRICE_IN`, `LLM_PRICE_OUT` (copy them from `server/.env`),
+`ANTHROPIC_API_KEY` (optional: without it PNG plans are read by the detectors only), `TRUST_PROXY=1`. Do not set `PORT` (Railway sets it) and
+do not set `RASTER_URL` (the image points to its own floor-plan service). Healthcheck path `/api/usage`, with a timeout of 300 s: the first start
+loads the model. Memory at least 3 GB. No volume is needed (a restart loses the current file, it has to be uploaded again; Railway rejects
+`VOLUME` in a Dockerfile, so a volume is made in Railway on `/data`, together with `RAILWAY_RUN_UID=0`).
+
+### Limits (flood protection, no login)
+
+| Setting | Default | What it does |
+|---|---|---|
+| `RATE_ASK_PER_MIN` | 60 | questions per minute per client address (token bucket, burst of the same size) |
+| `RATE_UPLOAD_PER_MIN` | 6 | uploads per minute per client address |
+| `MAX_PARALLEL_INDEX` | 2 | files parsed at once; the others wait ("queued") |
+| `RATE_ASK_PER_DAY` | 50 | questions per day per client address (UTC day); public addresses only |
+| `LLM_DAILY_BUDGET` | 20 | spending cap on the model per UTC day, in the currency of `LLM_PRICE_IN/OUT` (set them in EUR); questions that need no model keep working |
+| `UPLOADS_MAX_GB` | 5 | disk quota for uploads: the oldest are removed to make room |
+| `UPLOAD_MAX_MB` | 100 | file size |
+
+Requests from this machine and from private networks (loopback, 10.x, 172.16-31.x, 192.168.x, which includes Docker's gateway)
+are **not** rate limited, so running the code, `indexer/bench.py` or the container on one's own computer is never slowed down
+(`RATE_LIMIT_PRIVATE=1` limits them too). Behind a reverse proxy set `TRUST_PROXY=1` (the number of proxies in front): the client address is then read from
+the end of `X-Forwarded-For`, where the proxy writes it (the left side can be forged by the client); without it every request looks like the proxy's private address and nothing is limited. A question is at most
+2000 characters. `0` switches a limit off. There is no authentication.
+
+Needs Python 3.10+ (set `PYTHON_BIN` when the default `python3` is older) and Node 22+. `better-sqlite3` is the only native Node
+dependency. Without a model key, known question patterns still work and other
+questions are refused with that reason.
+
+Index a dataset folder for evaluation (separate from uploads):
+
+    python indexer/index.py <dataset> --db /tmp/dataset.db [--only swiss_dwellings] [--limit N]
+    python indexer/eval.py  <dataset> --db /tmp/dataset.db [--source swiss_dwellings]
+
+Server settings are in `server/.env`.
+
+## Raster plans (PNG)
+
+`server/src/raster.ts` is the only code that knows the API of `raster/`: it uploads the image, asks questions, and turns the scene and
+the answers into ours (`Answer`, `Evidence`, the plan for `PlanViewer`). A PNG is drawn with the detections over the picture, a question
+marks what was found, and the scale (two points on the plan, or read from the sheet) decides whether areas are in m² or px². A scanned PDF
+is turned into a PNG by the browser and takes the same road. `RASTER_URL` empty = no service: the PNG is only shown. `raster/` is kept as it is
+in the colleagues' repository, so their changes can be merged; settings of the service are in `raster/README.md` and `raster/WEIGHTS.md`.
+Tests of the adapter: `server/test/raster.test.ts`.
+
+## Layout
+
+    indexer/   index.py answer.py ask_cli.py  parse_{dxf,ifc,pdf}.py  render_dxf.py  ifc_geom.py ifc_facts.py
+               footprint.py group.py labels.py dict/ (label dictionaries per language)  eval.py bench.py schema.sql
+    server/    src/{index,ask,db,usage,py,limits,raster}.ts  test/  accuracy.json (last benchmark of indexer/bench.py)
+    raster/    the floor-plan service for PNG (colleagues' project: fp/ YOLO pipeline, FastAPI, its own README and tests)
+    web/       src/{App.tsx, components/, lib/}  (PlanViewer DXF/IFC plan, IfcViewer 3D, PdfViewer, FilePanel ...)
+    docs/      adr/  contract.md  brief.md  backlog.md  knowledge.md
+    Dockerfile docker-compose.yml  raster/Dockerfile
+
+## Accuracy
+
+Measured on the preview set, questions deduplicated across languages (7990 → 2335),
+using the organisers' scoring: counts exact, area/length/volume within 2%.
+The number we quote is the **wrong-answer rate**, not accuracy: a refusal is
+not a wrong answer.
+
+| Source | Result (2026-11-14) |
 |---|---|
-| `fp/classes.py` | список классов MVP, маппинг имён CubiCasa → наши классы, синонимы для чата |
-| `fp/cubicasa_svg.py` | парсер `model.svg` из CubiCasa5K |
-| `fp/convert_yolo.py` | CubiCasa5K → датасет YOLO-seg + `floorplans.yaml` |
-| `fp/visualize.py` | визуальная проверка разметки (полигоны поверх картинки) |
-| `fp/preprocess.py` | deskew, обрезка полей, CLAHE, ограничение размера |
-| `fp/infer.py` | картинка → граф сцены (моделью YOLO или из разметки `--gt-svg`) |
-| `fp/scene.py` | граф сцены, привязка объектов к комнатам, JSON/SVG |
-| `fp/query.py` | инструменты `highlight/count/list_rooms/objects_in/area/clear` + confidence по `confidence.md` |
-| `fp/chat.py` | чат: шаблоны (`parsed_by=cache`) → Claude (`parsed_by=llm`) |
-| `server/app.py`, `web/index.html` | FastAPI + страница: план, легенда, чат |
-| `scripts/make_synthetic.py` | синтетические планы в формате CubiCasa (для тестов) |
-| `scripts/inspect_cubicasa.py` | какие классы реально есть в датасете |
+| swiss_dwellings (DXF) | 89% correct (area 87%, count 91%), about 10% wrong |
+| ifc_models | 95% answered, 0 wrong, 5% refused |
+| opening_design, sheet A-801 | 21 correct, 0 wrong; other sheets refused |
+| cubicasa5k, ifc_bench | not parsed, all refused |
 
-## Быстрый старт
+Full run before the PDF parser: 767 right, 86 wrong, 1480 refused of 2335 (3.7% wrong).
+Re-run `indexer/eval.py` for current numbers; they change with every parser fix.
 
-```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m pytest -q tests
-```
+## Where to start
 
-### 1. Датасет
-CubiCasa5K (~5 ГБ, Zenodo: https://zenodo.org/records/2613548) распаковать в `data/cubicasa5k/`.
-
-```bash
-.venv/bin/python scripts/inspect_cubicasa.py data/cubicasa5k --limit 500     # проверить маппинг классов
-.venv/bin/python -m fp.convert_yolo --src data/cubicasa5k --out data/yolo
-.venv/bin/python -m fp.visualize --data data/yolo --split train --n 20 --out out/check
-```
-
-### 2. Обучение (Mac M-серии: `device=mps`; на Colab/CUDA: `device=0`)
-```bash
-.venv/bin/yolo segment train model=yolo11s-seg.pt data=data/yolo/floorplans.yaml epochs=100 imgsz=1024 device=mps project=runs name=cubicasa
-.venv/bin/yolo segment val model=<путь>/best.pt data=data/yolo/floorplans.yaml   # mAP по классам
-```
-Путь к `best.pt` печатается в конце обучения (Ultralytics 8.4 кладёт в `runs/segment/runs/<name>/weights/`).
-Ниже `runs/cubicasa/weights/best.pt` — подставьте свой. Готовые веса и как их передать — [WEIGHTS.md](WEIGHTS.md).
-
-**Версии модели.** v1 — 15 классов (сауна внутри `room_bath`), обучена 11 эпох в Colab
-(`MyDrive/floorplan/runs/cubicasa`). v2 — 16 классов: добавлен значок `sauna_bench` (все SaunaBench*: ~10,9 тыс. скамей в 3235 планах;
-помещений с меткой Sauna всего 133 — сауну рисуют скамьями в Bath). v2 дообучается поверх v1 (`MyDrive/floorplan/runs/cubicasa_v2`): Ultralytics переносит голову
-классов по именам. Новые классы добавлять **только в конец** `CLASSES`, затем
-`model=<v1>/best.pt data=<разметка v2>` — новый запуск, не `resume`.
-
-### 3. Инференс и чат
-```bash
-.venv/bin/python -m fp.infer --image my_scan.png --model runs/cubicasa/weights/best.pt --out data/scenes/my_scan
-FP_MODEL=runs/cubicasa/weights/best.pt .venv/bin/uvicorn server.app:app --port 8000
-```
-Без модели можно посмотреть чат на эталонной разметке:
-`python -m fp.infer --image <F1_scaled.png> --gt-svg <model.svg> --out data/scenes/demo`.
-
-Для запросов, которые шаблоны не понимают, нужен `ANTHROPIC_API_KEY` (модель `claude-opus-5-5`,
-effort `low`, включены server-side fallbacks на случай отказа модели).
-
-## Confidence
-Считается кодом, LLM не спрашиваем (см. `fp/query.py`):
-- у элемента `conf` = уверенность YOLO (у GT-разметки 1.0);
-- ответ = `min` по элементам; ноль найденных → ≤ 0.4; второй источник (`primary=False`, например OCR)
-  совпал → ≥ 0.95, разошёлся → ≤ 0.4;
-- уровни: `high ≥ 0.9`, `medium ≥ 0.7`, иначе `low` (+ примечание «проверьте»).
-
-## Известные ограничения MVP
-- Дверь между двумя комнатами привязывается к одной (по центру).
-- Площадь в px², пока не задан масштаб (`meta.px_per_m` в scene.json).
-- У YOLO маски бинарные, поэтому `conf` = уверенность бокса, а не средняя вероятность по маске.
-- Второй источник (OCR) и VLM-арбитр для низкой уверенности — ещё не подключены.
-
-### Пороги и склейка дублей (под точный подсчёт)
-`fp/thresholds.json` — порог уверенности по классам и склейка перекрывающихся детекций одного класса
-(одно окно, разбитое моделью на две). Подбираются на val, проверяются на test:
-```bash
-.venv/bin/python scripts/tune_thresholds.py dump --yolo <best.pt> --split val
-.venv/bin/python scripts/tune_thresholds.py dump --yolo <best.pt> --split test
-.venv/bin/python scripts/tune_thresholds.py tune      # -> out/tune/report.md, out/tune/thresholds.json
-```
-Новая модель (v2) → перезапустить и скопировать результат в `fp/thresholds.json`.
-Сравнение с готовой моделью CubiCasa: `scripts/compare_models.py` (результаты в `out/compare/`).
-
-### Калибровка уверенности
-Уровень high/medium/low у подсчёта считается не по min(conf), а по числу **пограничных детекций**
-(conf в пределах ±0.15 от порога класса, включая отброшенные) и min(conf). Границы по классам подбираются
-на val так, чтобы ответы high были верны в ≥90% случаев, medium — в ≥70%:
-`.venv/bin/python scripts/tune_thresholds.py calibrate` → `fp/thresholds.json`, отчёт `out/tune/calibration.md`.
-На test (v2): high — 36% ответов, верно 89%; medium — 26%, верно 72%; low — 37%, верно 42%.
-
-### ИИ в чате (Claude)
-Ключ — в `.env` (образец `.env.example`, файл в `.gitignore`): `ANTHROPIC_API_KEY=...`.
-Сначала вопрос разбирают правила (`parsed_by: cache`, $0); не поняли — Claude **Haiku 5.5** выбирает функцию
-(count / highlight / objects_in / area / list_rooms), числа и id берутся из базы (`answered_by: db`).
-Отвечает на языке вопроса; ~2–3 с и ~$0.0004 за вопрос. Другая модель: `FP_CLAUDE_MODEL=claude-opus-5-5`.
-
-### Площади помещений и плинтусы
-При загрузке (после чтения листа, `fp/sheet.py`) для каждой подписанной комнаты (`fp/spaces.py`):
-площадь = подпись на плане, если есть; иначе геометрия — заливка по стенам от подписи (`fp/rooms_cv.py`, без
-нейросети) или контур комнаты модели. Два источника совпали в пределах 10% — high, один — medium, разошлись — low.
-Плинтус = периметр (для почти прямоугольных комнат — периметр описанного прямоугольника) минус ширина дверей,
-касающихся комнаты. Масштаб: шкала, подписи площадей, или текст масштаба + формат листа (1:200 на A2).
-Чат: «посчитай площади помещений и плинтусы», «плинтус в MH», англ. «room areas / baseboards».
-
-### Второе мнение ИИ по сантехнике (`fp/arbiter.py`)
-Один вызов на план: вырезки санузлов, кухонь и мест с сантехникой -> VLM перечисляет приборы.
-Детекции модели **не правятся**: на тестовых планах CubiCasa правки по VLM ухудшали подсчёт (унитазы 88% -> 70–78%,
-и Haiku, и Sonnet). Но как сигнал работает: VLM согласна с числом модели — модель верна в 83%, не согласна — в 64%.
-Поэтому при расхождении уверенность ответа понижается на ступень, и в ответе написано мнение ИИ.
+- What is left and in what order: `docs/backlog.md`.
+- Why it is built this way: `docs/adr/`.
+- Working rules for this project and dataset facts: `docs/brief.md`.

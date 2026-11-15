@@ -1,0 +1,113 @@
+{
+ "generated": "2026-11-14 20:56",
+ "files": 28,
+ "questions": 602,
+ "scored": 498,
+ "right": 285,
+ "wrong": 13,
+ "refused": 200,
+ "wrong_rate": 0.0261,
+ "coverage": 0.5984,
+ "without_model": 0.608,
+ "cost_usd": 0.1439,
+ "cost_per_question_usd": 0.00024,
+ "models": [
+  {
+   "model": "openai:deepseek-4-1-flash-1017",
+   "calls": 442,
+   "input_tokens": 863338,
+   "output_tokens": 53461,
+   "cost_usd": 0.1439
+  }
+ ],
+ "rows": [
+  {
+   "source": "cubicasa5k",
+   "type": "count",
+   "right": 0,
+   "wrong": 0,
+   "refused": 41,
+   "text": 0
+  },
+  {
+   "source": "ifc_bench",
+   "type": "text",
+   "right": 0,
+   "wrong": 0,
+   "refused": 126,
+   "text": 115
+  },
+  {
+   "source": "ifc_models",
+   "type": "area",
+   "right": 132,
+   "wrong": 0,
+   "refused": 0,
+   "text": 0
+  },
+  {
+   "source": "ifc_models",
+   "type": "count",
+   "right": 42,
+   "wrong": 0,
+   "refused": 0,
+   "text": 0
+  },
+  {
+   "source": "ifc_models",
+   "type": "length",
+   "right": 5,
+   "wrong": 0,
+   "refused": 0,
+   "text": 0
+  },
+  {
+   "source": "ifc_models",
+   "type": "volume",
+   "right": 14,
+   "wrong": 0,
+   "refused": 0,
+   "text": 0
+  },
+  {
+   "source": "opening_design",
+   "type": "area",
+   "right": 9,
+   "wrong": 0,
+   "refused": 0,
+   "text": 0
+  },
+  {
+   "source": "opening_design",
+   "type": "count",
+   "right": 12,
+   "wrong": 0,
+   "refused": 0,
+   "text": 0
+  },
+  {
+   "source": "opening_design",
+   "type": "text",
+   "right": 1,
+   "wrong": 0,
+   "refused": 1,
+   "text": 10
+  },
+  {
+   "source": "swiss_dwellings",
+   "type": "area",
+   "right": 33,
+   "wrong": 5,
+   "refused": 6,
+   "text": 0
+  },
+  {
+   "source": "swiss_dwellings",
+   "type": "count",
+   "right": 37,
+   "wrong": 8,
+   "refused": 5,
+   "text": 0
+  }
+ ]
+}

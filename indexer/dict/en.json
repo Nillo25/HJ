@@ -1,0 +1,111 @@
+{
+ "lang": "en",
+ "name": "English",
+ "entries": {
+  "wic": {
+   "type": "storage",
+   "full": "walk-in closet",
+   "src": "legend: roomsketcher.com floor-plan-symbols"
+  },
+  "tlt": {
+   "type": "wc",
+   "full": "toilet",
+   "src": "legend: archtoolbox.com architectural-abbreviations"
+  },
+  "bath": {
+   "type": "bathroom",
+   "full": "bath",
+   "src": "real plan: plan7architect"
+  },
+  "kit": {
+   "type": "kitchen",
+   "full": "kitchen",
+   "src": "real plan: plan7architect"
+  },
+  "br": {
+   "type": "bedroom",
+   "full": "bedroom",
+   "src": "real plan: plan7architect"
+  },
+  "mbr": {
+   "type": "bedroom",
+   "full": "master bedroom",
+   "src": "knowledge"
+  },
+  "lr": {
+   "type": "living",
+   "full": "living room",
+   "src": "knowledge"
+  },
+  "dr": {
+   "type": "living",
+   "full": "dining room",
+   "src": "knowledge"
+  },
+  "cl": {
+   "type": "storage",
+   "full": "closet",
+   "src": "knowledge"
+  },
+  "ldry": {
+   "type": "technical",
+   "full": "laundry",
+   "src": "knowledge"
+  },
+  "mech": {
+   "type": "technical",
+   "full": "mechanical room",
+   "src": "knowledge"
+  },
+  "elec": {
+   "type": "technical",
+   "full": "electrical room",
+   "src": "knowledge"
+  },
+  "util": {
+   "type": "technical",
+   "full": "utility",
+   "src": "knowledge"
+  },
+  "elev": {
+   "type": "technical",
+   "full": "elevator",
+   "src": "legend: archtoolbox.com"
+  },
+  "rr": {
+   "type": "wc",
+   "full": "restroom",
+   "src": "knowledge"
+  },
+  "ba": {
+   "type": "bathroom",
+   "full": "bath",
+   "src": "knowledge"
+  },
+  "stor": {
+   "type": "storage",
+   "full": "storage",
+   "src": "knowledge"
+  },
+  "lobby": {
+   "type": "corridor",
+   "full": "lobby",
+   "src": "dataset"
+  },
+  "office": {
+   "type": "office",
+   "full": "office",
+   "src": "dataset"
+  },
+  "restroom": {
+   "type": "wc",
+   "full": "restroom",
+   "src": "dataset"
+  },
+  "toilet": {
+   "type": "wc",
+   "full": "toilet",
+   "src": "dataset"
+  }
+ }
+}

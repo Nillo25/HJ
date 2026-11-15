@@ -1,0 +1,81 @@
+{
+ "lang": "no",
+ "name": "Norwegian",
+ "entries": {
+  "gard": {
+   "type": "storage",
+   "full": "garderobe",
+   "src": "real plan: Lindesnes kommune"
+  },
+  "sov": {
+   "type": "bedroom",
+   "full": "soverom",
+   "src": "real plan: Tvedestrand kommune"
+  },
+  "bod": {
+   "type": "storage",
+   "full": "bod",
+   "src": "real plan: Norwegian residential drawing"
+  },
+  "entre": {
+   "type": "corridor",
+   "full": "entré",
+   "src": "real plan: Norwegian residential drawing"
+  },
+  "gang": {
+   "type": "corridor",
+   "full": "gang",
+   "src": "real plan: Norwegian residential drawing"
+  },
+  "wc": {
+   "type": "wc",
+   "full": "WC",
+   "src": "real plan: UiO dwg guide"
+  },
+  "bad": {
+   "type": "bathroom",
+   "full": "bad",
+   "src": "real plan: UiO dwg guide"
+  },
+  "kjøkken": {
+   "type": "kitchen",
+   "full": "kjøkken",
+   "src": "real plan: Lindesnes kommune"
+  },
+  "stue": {
+   "type": "living",
+   "full": "stue",
+   "src": "real plan: Tvedestrand kommune"
+  },
+  "spis": {
+   "type": "living",
+   "full": "spisestue",
+   "src": "real plan: Tvedestrand kommune"
+  },
+  "korr": {
+   "type": "corridor",
+   "full": "korridor",
+   "src": "dataset"
+  },
+  "rwc": {
+   "type": "wc",
+   "full": "wc (rom for wc)",
+   "src": "dataset"
+  },
+  "teknisk": {
+   "type": "technical",
+   "full": "teknisk rom",
+   "src": "knowledge"
+  },
+  "tekn": {
+   "type": "technical",
+   "full": "teknisk",
+   "src": "knowledge"
+  },
+  "vf": {
+   "type": "other",
+   "full": "unverified",
+   "src": "knowledge"
+  }
+ }
+}
